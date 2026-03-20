@@ -61,18 +61,53 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data = None
 
-# --- 5. LOGIN SCREEN (REFINED FOR MOBILE PROPORTIONS) ---
+# --- 5. LOGIN SCREEN (CSS CENTERED & WELCOME MESSAGE) ---
 if not st.session_state.authenticated:
+    # A. CSS for Perfect Mobile Centering
+    st.markdown(
+        """
+        <style>
+        .logo-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px 0px;
+        }
+        .welcome-text {
+            text-align: center;
+            color: #28a745;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        </style>
+        """, unsafe_allow_html=True
+    )
+
+    # B. Render Centered Logo
     if os.path.exists(logo_path):
-        # Using 3 columns to center the logo
-        # The middle column gets 3 units of space, sides get 2
-        empty_l, logo_col, empty_r = st.columns([2, 3, 2])
-        with logo_col: 
-            # width=180 is the "sweet spot" for mobile agency logos
-            st.image(logo_path, width=180)
+        st.markdown('<div class="logo-container">', unsafe_allow_html=True)
+        st.image(logo_path, width=160)
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    st.markdown("<h1 style='text-align: center; color: #001f3f;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #001f3f; margin-top: -10px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
+    
+    # C. Inputs
     mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
+    
+    # D. Live Welcome Message Logic
+    if mobile_input:
+        try:
+            roster_df = get_data("Rosters")
+            roster_df['Mobile_Number_Clean'] = roster_df['Mobile_Number'].apply(clean_to_digits)
+            search_mob = clean_to_digits(mobile_input)
+            match = roster_df[roster_df['Mobile_Number_Clean'] == search_mob]
+            
+            if not match.empty:
+                guard_first_name = match.iloc[0]['Name'].split()[0]
+                st.markdown(f'<p class="welcome-text">Welcome, {guard_first_name}!</p>', unsafe_allow_html=True)
+        except:
+            pass # Silent fail if data hasn't loaded yet
+
     password_input = st.text_input("Password", type="password")
 
     if st.button("Login", use_container_width=True):
@@ -134,14 +169,14 @@ else:
             else:
                 assigned_site = "Floating / Unassigned"
 
-        st.title(f"Welcome, {user['Name']}")
-        tab1, tab2, tab3 = st.tabs(["🕒 Attendance", "📩 Requests", "👤 My Profile"])
+        st.title(f"Hello, {user['Name']}")
+        tab1, tab2, tab3 = st.tabs(["🕒 Attendance", "📩 Requests", "👤 Profile"])
         
         with tab1:
             st.subheader("Daily Time Record")
-            st.info(f"📍 Currently Assigned to: **{assigned_site}**")
+            st.info(f"📍 Assigned to: **{assigned_site}**")
             
-            st.markdown("### 📋 Digital Post Orders")
+            st.markdown("### 📋 Post Orders")
             try:
                 orders_df = get_data("PostOrders")
                 orders_df['Site_Clean'] = orders_df['Site'].astype(str).str.strip().str.upper()
@@ -153,9 +188,9 @@ else:
                     
                     if found_col:
                         specific_order = site_orders.iloc[0][found_col]
-                        st.warning(f"**Instructions for {assigned_site}:**\n\n{specific_order}")
+                        st.warning(f"**Instructions:**\n\n{specific_order}")
                         
-                        if st.button("✔️ I HAVE READ & UNDERSTOOD", use_container_width=True):
+                        if st.button("✔️ CONFIRM READ", use_container_width=True):
                             new_log = pd.DataFrame([{
                                 "Timestamp": datetime.now().strftime("%Y-%m-%d %I:%M %p"),
                                 "Guard_Name": user['Name'],
@@ -167,13 +202,13 @@ else:
                                 existing_logs = get_data("PostOrderLogs")
                                 updated_logs = pd.concat([existing_logs, new_log], ignore_index=True)
                                 conn.update(worksheet="PostOrderLogs", data=updated_logs)
-                                st.success("Acknowledgement sent!")
-                            except Exception as log_err:
+                                st.success("Sent to Command Center!")
+                            except:
                                 st.error("Log error.")
                 else:
-                    st.success("✅ No special instructions for today.")
+                    st.success("✅ Standard protocols apply today.")
             except Exception as e:
-                st.caption("Standard Post Orders apply.")
+                st.caption("Post Orders ready.")
             
             st.divider()
             unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
@@ -182,13 +217,13 @@ else:
         with tab2:
             st.subheader("New Request")
             with st.form("request_form", clear_on_submit=True):
-                req_type = st.selectbox("Category", ["Leave of Absence", "Cash Advance", "Uniform/Equipment", "Schedule Change", "Medical", "Other"])
+                req_type = st.selectbox("Type", ["Leave", "Cash Advance", "Equipment", "Schedule", "Other"])
                 details = st.text_area("Details")
                 if st.form_submit_button("Submit"):
                     if details: submit_request(req_type, details)
             
             st.divider()
-            st.subheader("My Request History")
+            st.subheader("History")
             try:
                 all_reqs = get_data("Request")
                 user_mob = clean_to_digits(user['Mobile_Number'])
@@ -199,16 +234,14 @@ else:
                     display_reqs = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values('Date', ascending=False)
                     styled_display = display_reqs.style.map(style_status, subset=['Status'])
                     st.dataframe(styled_display, hide_index=True, use_container_width=True)
-                    st.caption("🟡 PENDING | 🟢 APPROVED | 🔴 DENIED")
                 else:
-                    st.info("No previous requests found.")
-            except Exception as e:
-                st.error(f"History Error: {e}")
+                    st.info("No requests.")
+            except:
+                st.error("History Error.")
 
         with tab3:
-            st.subheader("Employment Details")
-            st.write(f"**Full Name:** {user['Name']}")
-            st.write(f"**Current Site:** {assigned_site}")
+            st.subheader("My Info")
+            st.write(f"**Name:** {user['Name']}")
             st.write(f"**Mobile:** {clean_to_digits(user['Mobile_Number'])}")
             st.write(f"**Security ID:** {clean_id}")
 
