@@ -2,16 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>JA.PREMIER</title>
 
-  <!-- ══════════════════════════════════════════
-       FAVICON & HOME SCREEN ICON — JA.PREMIER
-       ══════════════════════════════════════════ -->
+  <!-- FAVICON & HOME SCREEN ICON -->
   <link rel="icon" type="image/png" href="agency_logo.png">
   <link rel="shortcut icon" type="image/png" href="agency_logo.png">
-
-  <!-- iOS "Add to Home Screen" icon (all sizes) -->
   <link rel="apple-touch-icon"              href="agency_logo.png">
   <link rel="apple-touch-icon" sizes="57x57"   href="agency_logo.png">
   <link rel="apple-touch-icon" sizes="72x72"   href="agency_logo.png">
@@ -22,126 +18,91 @@
   <link rel="apple-touch-icon" sizes="152x152" href="agency_logo.png">
   <link rel="apple-touch-icon" sizes="180x180" href="agency_logo.png">
 
-  <!-- iOS standalone web app -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="JA.PREMIER">
-
-  <!-- Android / Chrome PWA -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="application-name" content="JA.PREMIER">
   <meta name="theme-color" content="#001f3f">
-
-  <!-- PWA Manifest (points to manifest.json in same folder) -->
   <link rel="manifest" href="manifest.json">
-
-  <!-- ══════════════════════════════════════════
-       AUTO-REDIRECT TO STREAMLIT APP
-       Change STREAMLIT_URL to your actual app URL
-       ══════════════════════════════════════════ -->
-  <script>
-    var STREAMLIT_URL = "https://ja-premier-app-xzhp3bxjjsnesuxx2vzn4n.streamlit.app/";
-
-    // If opened as standalone PWA (home screen), redirect immediately
-    // If opened in browser, show splash for 1.5s then redirect
-    var isStandalone = window.navigator.standalone === true ||
-                       window.matchMedia('(display-mode: standalone)').matches;
-
-    if (isStandalone) {
-      window.location.replace(STREAMLIT_URL);
-    } else {
-      setTimeout(function() {
-        window.location.replace(STREAMLIT_URL);
-      }, 1500);
-    }
-  </script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #001f3f; }
 
-    body {
+    /* Splash screen shown while iframe loads */
+    #splash {
+      position: fixed;
+      inset: 0;
       background: #001f3f;
-      min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      overflow: hidden;
+      gap: 24px;
+      z-index: 10;
+      transition: opacity 0.5s ease;
     }
-
-    .splash {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 28px;
-      animation: fadeIn 0.5s ease forwards;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(12px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
+    #splash.hidden { opacity: 0; pointer-events: none; }
 
     .logo-wrap {
-      width: 120px;
-      height: 120px;
-      border-radius: 28px;
+      width: 110px;
+      height: 110px;
+      border-radius: 26px;
       background: white;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5);
     }
-
-    .logo-wrap img {
-      width: 96px;
-      height: 96px;
-      object-fit: contain;
-    }
+    .logo-wrap img { width: 88px; height: 88px; object-fit: contain; }
 
     .app-name {
       color: white;
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 700;
-      letter-spacing: 3px;
-      text-transform: uppercase;
+      letter-spacing: 4px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
-
     .tagline {
-      color: rgba(255,255,255,0.5);
-      font-size: 12px;
-      letter-spacing: 2px;
+      color: rgba(255,255,255,0.45);
+      font-size: 11px;
+      letter-spacing: 2.5px;
       text-transform: uppercase;
-      margin-top: -18px;
+      margin-top: -16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
-
-    .loader {
-      display: flex;
-      gap: 6px;
-      margin-top: 8px;
-    }
-
+    .loader { display: flex; gap: 6px; margin-top: 4px; }
     .loader span {
-      width: 7px;
-      height: 7px;
+      width: 7px; height: 7px;
       border-radius: 50%;
       background: rgba(255,255,255,0.3);
       animation: bounce 1.2s ease-in-out infinite;
     }
     .loader span:nth-child(2) { animation-delay: 0.2s; }
     .loader span:nth-child(3) { animation-delay: 0.4s; }
-
     @keyframes bounce {
-      0%, 80%, 100% { background: rgba(255,255,255,0.25); transform: scale(1); }
-      40%            { background: rgba(255,255,255,0.9); transform: scale(1.3); }
+      0%,80%,100% { background: rgba(255,255,255,0.25); transform: scale(1); }
+      40%          { background: rgba(255,255,255,0.9);  transform: scale(1.3); }
+    }
+
+    /* The iframe fills the entire screen */
+    #app-frame {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: white;
     }
   </style>
 </head>
 <body>
-  <div class="splash">
+
+  <!-- Splash shown while app loads -->
+  <div id="splash">
     <div class="logo-wrap">
-      <img src="agency_logo.png" alt="JA.PREMIER Logo">
+      <img src="agency_logo.png" alt="JA.PREMIER">
     </div>
     <div class="app-name">JA.PREMIER</div>
     <div class="tagline">Security Agency Portal</div>
@@ -149,5 +110,29 @@
       <span></span><span></span><span></span>
     </div>
   </div>
+
+  <!-- Streamlit app runs inside here — CHANGE THE URL BELOW -->
+  <iframe
+    id="app-frame"
+    src="https://YOUR-APP-NAME.streamlit.app/?embedded=true"
+    allow="camera; microphone; geolocation"
+    loading="eager"
+    onload="hideSplash()"
+  ></iframe>
+
+  <script>
+    function hideSplash() {
+      // Give Streamlit a moment to fully render before hiding splash
+      setTimeout(function() {
+        document.getElementById('splash').classList.add('hidden');
+      }, 800);
+    }
+
+    // Fallback: hide splash after 6 seconds even if iframe is slow
+    setTimeout(function() {
+      document.getElementById('splash').classList.add('hidden');
+    }, 6000);
+  </script>
+
 </body>
 </html>
