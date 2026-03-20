@@ -14,41 +14,45 @@ st.set_page_config(
     page_icon=LOGO_URL
 )
 
-# --- 2. UI CLEANUP ---
-st.markdown("""
+# --- 2. UI CLEANUP & BRANDING ---
+st.markdown(f"""
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="JA.PREMIER">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#001f3f">
+    
     <style>
-        /* Hide all Streamlit branding */
-        #MainMenu                       { visibility: hidden; }
-        header                          { visibility: hidden; }
-        footer                          { visibility: hidden; }
+        /* 1. Hide Standard Streamlit Elements */
+        #MainMenu {{ visibility: hidden; }}
+        header {{ visibility: hidden; }}
+        footer {{ visibility: hidden; }}
 
-        /* Hide "Hosted by Streamlit" badge / toolbar */
-        .stAppDeployButton              { display: none !important; }
-        [data-testid="stToolbar"]       { display: none !important; }
-        [data-testid="stDecoration"]    { display: none !important; }
-        [data-testid="stStatusWidget"]  { display: none !important; }
-        .viewerBadge_container__1QSob  { display: none !important; }
-        .viewerBadge_link__1S137       { display: none !important; }
-        #MainMenu                       { display: none !important; }
-        .css-1rs6os                     { display: none !important; }
-        .css-17ziqus                    { display: none !important; }
-
-        /* Remove top/bottom padding for cleaner layout */
-        .block-container {
+        /* 2. Hide "Hosted by Streamlit" & Deployment Buttons */
+        .stAppDeployButton {{ display: none !important; }}
+        [data-testid="stToolbar"] {{ display: none !important; }}
+        [data-testid="stDecoration"] {{ display: none !important; }}
+        [data-testid="stStatusWidget"] {{ display: none !important; }}
+        
+        /* 3. Hide Viewer Badges and Bottom Anchors */
+        .viewerBadge_container__1QSob {{ display: none !important; }}
+        .viewerBadge_link__1S137 {{ display: none !important; }}
+        [data-testid="stBottomBlockContainer"] {{ display: none !important; }}
+        
+        /* 4. Layout Polish */
+        .block-container {{
             padding-top: 2rem;
             padding-bottom: 1rem;
-        }
-
-        /* Hide the bottom "Made with Streamlit" footer entirely */
-        .st-emotion-cache-1wbqy5l       { display: none !important; }
-        .st-emotion-cache-zq5wmm        { display: none !important; }
-        ._terminalButton_rix23_138      { display: none !important; }
-        [data-testid="stBottomBlockContainer"] { display: none !important; }
+        }}
+        
+        /* Custom Scrollbar for Agency Feel */
+        ::-webkit-scrollbar {{
+            width: 5px;
+        }}
+        ::-webkit-scrollbar-thumb {{
+            background: #001f3f; 
+            border-radius: 10px;
+        }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -195,7 +199,6 @@ if not st.session_state.authenticated:
 # --- 8. LOGGED IN CONTENT ---
 else:
     user = st.session_state.user_data
-
     raw_id = user.get('Security_ID', 'N/A')
     try:
         clean_id = (
