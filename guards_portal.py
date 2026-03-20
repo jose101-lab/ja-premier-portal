@@ -4,36 +4,76 @@ import pandas as pd
 from datetime import datetime
 import os
 import base64
+import json
 
 # --- 1. INITIAL CONFIGURATION ---
-# The 'page_icon' here is the primary way Streamlit tells the browser what to show.
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
 
 st.set_page_config(
-    page_title="JA.PREMIER", 
-    layout="centered", 
+    page_title="JA.PREMIER",
+    layout="centered",
     page_icon=LOGO_URL
 )
 
-# --- 2. FORCED BRANDING & UI CLEANUP ---
-# This script hides Streamlit elements and forces your logo into the browser's memory.
+# --- 2. FORCED BRANDING, PWA MANIFEST & UI CLEANUP ---
+# Injects apple-touch-icon, web app manifest, and theme-color so the JA.PREMIER logo
+# appears on the mobile home screen instead of the default Streamlit icon.
 st.markdown(f"""
+    <link rel="apple-touch-icon" href="{LOGO_URL}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{LOGO_URL}">
+    <link rel="apple-touch-icon" sizes="152x152" href="{LOGO_URL}">
+    <link rel="apple-touch-icon" sizes="120x120" href="{LOGO_URL}">
+    <link rel="shortcut icon" href="{LOGO_URL}" type="image/png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="JA.PREMIER">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#001f3f">
+    <meta name="application-name" content="JA.PREMIER">
+
     <script>
-        // Force the title and icon again once the DOM is ready
-        var link = document.querySelector("link[rel*='icon']") || document.createElement('link');
-        link.type = 'image/png';
-        link.rel = 'shortcut icon';
-        link.href = '{LOGO_URL}';
-        document.getElementsByTagName('head')[0].appendChild(link);
-        document.title = "JA.PREMIER";
+        // Dynamically inject a web app manifest so Android/Chrome home screen
+        // also picks up the JA.PREMIER logo instead of Streamlit's default.
+        (function() {{
+            var manifest = {{
+                "name": "JA.PREMIER",
+                "short_name": "JA.PREMIER",
+                "description": "JA.PREMIER Security Agency Portal",
+                "start_url": "/",
+                "display": "standalone",
+                "background_color": "#001f3f",
+                "theme_color": "#001f3f",
+                "orientation": "portrait",
+                "icons": [
+                    {{"src": "{LOGO_URL}", "sizes": "192x192", "type": "image/png"}},
+                    {{"src": "{LOGO_URL}", "sizes": "512x512", "type": "image/png"}}
+                ]
+            }};
+            var blob = new Blob([JSON.stringify(manifest)], {{type: 'application/json'}});
+            var url  = URL.createObjectURL(blob);
+            var link = document.createElement('link');
+            link.rel  = 'manifest';
+            link.href = url;
+            document.head.appendChild(link);
+
+            // Force favicon override
+            var favicon = document.querySelector("link[rel*='icon']") || document.createElement('link');
+            favicon.type = 'image/png';
+            favicon.rel  = 'shortcut icon';
+            favicon.href = '{LOGO_URL}';
+            document.head.appendChild(favicon);
+
+            document.title = "JA.PREMIER";
+        }})();
     </script>
+
     <style>
-        /* Hide the Streamlit Menu, Footer, and Header for a professional app feel */
-        #MainMenu {{visibility: hidden;}}
-        footer {{visibility: hidden;}}
-        header {{visibility: hidden;}}
-        
-        /* Remove extra padding at the top */
+        /* Hide Streamlit chrome */
+        #MainMenu  {{visibility: hidden;}}
+        footer     {{visibility: hidden;}}
+        header     {{visibility: hidden;}}
+
+        /* Remove default top padding */
         .block-container {{
             padding-top: 2rem;
             padding-bottom: 2rem;
@@ -41,15 +81,19 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-ATTENDANCE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
+# --- 3. CONSTANTS ---
+ATTENDANCE_SCRIPT_URL = (
+    "https://script.google.com/macros/s/"
+    "AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
+)
 
 base_path = os.path.dirname(os.path.abspath(__file__))
 logo_path = os.path.join(base_path, "agency_logo.png")
 
-# --- 3. CONNECT TO GOOGLE SHEETS ---
+# --- 4. CONNECT TO GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 4. UTILITY FUNCTIONS ---
+# --- 5. UTILITY FUNCTIONS ---
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
         data = f.read()
@@ -84,70 +128,75 @@ def submit_request(req_type, details):
             "Name": st.session_state.user_data['Name'],
             "Type": req_type,
             "Details": details,
-            "Status": "PENDING" 
+            "Status": "PENDING"
         }])
         try:
             existing_reqs = get_data("Request")
             updated_reqs = pd.concat([existing_reqs, new_req], ignore_index=True)
             conn.update(worksheet="Request", data=updated_reqs)
             st.success("✅ Request sent!")
-            st.cache_data.clear() 
+            st.cache_data.clear()
         except Exception as e:
             st.error(f"Error: {e}")
 
-# --- 5. SESSION MANAGEMENT ---
+# --- 6. SESSION MANAGEMENT ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data = None
 
-# --- 6. LOGIN SCREEN ---
+# --- 7. LOGIN SCREEN ---
 if not st.session_state.authenticated:
-    st.markdown(
-        f"""
+    st.markdown("""
         <style>
-        .force-center {{
+        .force-center {
             display: flex;
             justify-content: center;
             align-items: center;
             width: 100%;
             margin-bottom: 10px;
-        }}
-        .logo-img {{
+        }
+        .logo-img {
             width: 150px;
             height: auto;
-        }}
-        .welcome-text {{
+        }
+        .welcome-text {
             text-align: center;
             color: #001f3f;
             font-weight: bold;
             margin-bottom: 15px;
             font-size: 1.1rem;
-        }}
+        }
         </style>
-        """, unsafe_allow_html=True
-    )
+    """, unsafe_allow_html=True)
 
     if os.path.exists(logo_path):
         binary_logo = get_base64_of_bin_file(logo_path)
         st.markdown(
-            f'<div class="force-center"><img src="data:image/png;base64,{binary_logo}" class="logo-img"></div>',
+            f'<div class="force-center">'
+            f'<img src="data:image/png;base64,{binary_logo}" class="logo-img">'
+            f'</div>',
             unsafe_allow_html=True
         )
-    
-    st.markdown("<h1 style='text-align: center; color: #001f3f; margin-top: 0px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
-    
+
+    st.markdown(
+        "<h1 style='text-align: center; color: #001f3f; margin-top: 0px;'>JA.PREMIER Login</h1>",
+        unsafe_allow_html=True
+    )
+
     mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
-    
+
     if mobile_input:
         try:
             roster_df = get_data("Rosters")
             roster_df['Mobile_Number_Clean'] = roster_df['Mobile_Number'].apply(clean_to_digits)
             search_mob = clean_to_digits(mobile_input)
             match = roster_df[roster_df['Mobile_Number_Clean'] == search_mob]
-            
             if not match.empty:
                 guard_name = match.iloc[0]['Name']
-                st.markdown(f'<p class="welcome-text">Welcome, {guard_name}!</p>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<p class="welcome-text">Welcome, {guard_name}!</p>',
+                    unsafe_allow_html=True
+                )
         except:
             pass
 
@@ -175,37 +224,45 @@ if not st.session_state.authenticated:
             except Exception as e:
                 st.error(f"Login System Error: {e}")
 
-# --- 7. LOGGED IN CONTENT ---
+# --- 8. LOGGED IN CONTENT ---
 else:
     user = st.session_state.user_data
-    
+
     raw_id = user.get('Security_ID', 'N/A')
     try:
-        clean_id = str(int(float(raw_id))) if pd.notna(raw_id) and str(raw_id).lower() != 'nan' else "N/A"
+        clean_id = (
+            str(int(float(raw_id)))
+            if pd.notna(raw_id) and str(raw_id).lower() != 'nan'
+            else "N/A"
+        )
     except:
         clean_id = "N/A"
 
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
-    
+
     if is_temp:
         st.title("🔐 Update Password")
-        new_pass = st.text_input("New Password", type="password")
+        new_pass     = st.text_input("New Password", type="password")
         confirm_pass = st.text_input("Confirm", type="password")
         if st.button("Update"):
             if new_pass == confirm_pass and len(new_pass) > 3:
                 st.success("Updated!")
-                st.session_state.authenticated = False 
+                st.session_state.authenticated = False
                 st.rerun()
     else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
-        
+
         with st.spinner("Fetching Schedule..."):
-            guards_tab_df = get_data("GUARDS")
+            guards_tab_df     = get_data("GUARDS")
             current_guard_name = str(user['Name']).strip().upper()
-            guard_assignments = guards_tab_df[guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name]
-            
+            guard_assignments  = guards_tab_df[
+                guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name
+            ]
+
             if not guard_assignments.empty:
-                guard_assignments['Effective Date'] = pd.to_datetime(guard_assignments['Effective Date'], dayfirst=True, errors='coerce')
+                guard_assignments['Effective Date'] = pd.to_datetime(
+                    guard_assignments['Effective Date'], dayfirst=True, errors='coerce'
+                )
                 latest_assignment = guard_assignments.sort_values('Effective Date', ascending=False).iloc[0]
                 assigned_site = str(latest_assignment['Site']).strip()
             else:
@@ -213,57 +270,58 @@ else:
 
         st.title(f"Hello, {user['Name']}")
         tab1, tab2, tab3 = st.tabs(["🕒 Attendance", "📩 Requests", "👤 Profile"])
-        
+
         with tab1:
             st.subheader("Daily Time Record")
             st.info(f"📍 Assigned to: **{assigned_site}**")
-            
+
             st.markdown("### 📋 Post Orders")
             try:
                 orders_df = get_data("PostOrders")
                 orders_df['Site_Clean'] = orders_df['Site'].astype(str).str.strip().str.upper()
                 site_orders = orders_df[orders_df['Site_Clean'] == assigned_site.upper()]
-                
+
                 if not site_orders.empty:
                     possible_cols = ['Orders', 'Order_Content', 'Instructions']
                     found_col = next((c for c in possible_cols if c in site_orders.columns), None)
-                    
+
                     if found_col:
                         specific_order = site_orders.iloc[0][found_col]
                         st.warning(f"**Instructions:**\n\n{specific_order}")
-                        
+
                         if st.button("✔️ CONFIRM READ", use_container_width=True):
                             new_log = pd.DataFrame([{
-                                "Timestamp": datetime.now().strftime("%Y-%m-%d %I:%M %p"),
-                                "Guard_Name": user['Name'],
-                                "Site": assigned_site,
+                                "Timestamp":     datetime.now().strftime("%Y-%m-%d %I:%M %p"),
+                                "Guard_Name":    user['Name'],
+                                "Site":          assigned_site,
                                 "Order_Content": specific_order,
-                                "Status": "CONFIRMED READ"
+                                "Status":        "CONFIRMED READ"
                             }])
                             try:
                                 existing_logs = get_data("PostOrderLogs")
-                                updated_logs = pd.concat([existing_logs, new_log], ignore_index=True)
+                                updated_logs  = pd.concat([existing_logs, new_log], ignore_index=True)
                                 conn.update(worksheet="PostOrderLogs", data=updated_logs)
                                 st.success("Sent to Command Center!")
                             except:
                                 st.error("Log error.")
                 else:
                     st.success("✅ Standard protocols apply today.")
-            except Exception as e:
+            except Exception:
                 st.caption("Post Orders ready.")
-            
+
             st.divider()
             unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
             st.link_button("🚀 CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
-            
+
         with tab2:
             st.subheader("New Request")
             with st.form("request_form", clear_on_submit=True):
                 req_type = st.selectbox("Type", ["Leave", "Cash Advance", "Equipment", "Schedule", "Other"])
-                details = st.text_area("Details")
+                details  = st.text_area("Details")
                 if st.form_submit_button("Submit"):
-                    if details: submit_request(req_type, details)
-            
+                    if details:
+                        submit_request(req_type, details)
+
             st.divider()
             st.subheader("History")
             try:
@@ -271,9 +329,9 @@ else:
                 user_mob = clean_to_digits(user['Mobile_Number'])
                 all_reqs['Mobile_Number_Clean'] = all_reqs['Mobile_Number'].apply(clean_to_digits)
                 my_reqs = all_reqs[all_reqs['Mobile_Number_Clean'] == user_mob].copy()
-                
+
                 if not my_reqs.empty:
-                    display_reqs = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values('Date', ascending=False)
+                    display_reqs   = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values('Date', ascending=False)
                     styled_display = display_reqs.style.map(style_status, subset=['Status'])
                     st.dataframe(styled_display, hide_index=True, use_container_width=True)
                 else:
