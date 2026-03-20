@@ -214,7 +214,15 @@ else:
             else:
                 assigned_site = "Floating / Unassigned"
 
-        st.title(f"Hello, {user['Name']}")
+        col_title, col_refresh = st.columns([5, 1])
+        with col_title:
+            st.title(f"Hello, {user['Name']}")
+        with col_refresh:
+            st.markdown("<div style='padding-top:18px;'>", unsafe_allow_html=True)
+            if st.button("↻", help="Refresh page"):
+                st.cache_data.clear()
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # --- 4 TABS including new Payslip tab ---
         tab1, tab2, tab3, tab4 = st.tabs(["Attendance", "Requests", "Profile", "Payslip"])
