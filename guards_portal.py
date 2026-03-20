@@ -5,60 +5,37 @@ from datetime import datetime
 import os
 import base64
 
-# --- 1.1. DYNAMIC MANIFEST INJECTION ---
+# --- 1. INITIAL CONFIGURATION (The Official Way) ---
+# We use the direct URL to your logo here so Streamlit pulls it immediately
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
-AGENCY_BLUE = "#001f3f"
 
-# This JavaScript creates a "Web Manifest" on the fly. 
-# This is what Chrome uses for the "Add to Home Screen" icon and name.
-manifest_js = f"""
-<script>
-    var myDynamicManifest = {{
-      "name": "JA.PREMIER Guard Portal",
-      "short_name": "JA.PREMIER",
-      "start_url": ".",
-      "display": "standalone",
-      "background_color": "{AGENCY_BLUE}",
-      "theme_color": "{AGENCY_BLUE}",
-      "icons": [
-        {{
-          "src": "{LOGO_URL}",
-          "sizes": "192x192",
-          "type": "image/png"
-        }},
-        {{
-          "src": "{LOGO_URL}",
-          "sizes": "512x512",
-          "type": "image/png"
-        }}
-      ]
-    }};
-    
-    const stringManifest = JSON.stringify(myDynamicManifest);
-    const blob = new Blob([stringManifest], {{type: 'application/json'}});
-    const manifestURL = URL.createObjectURL(blob);
-    
-    // Check if manifest already exists, if so remove it
-    var oldManifest = document.querySelector('link[rel="manifest"]');
-    if (oldManifest) oldManifest.remove();
-    
-    // Add the new dynamic manifest
-    var link = document.createElement('link');
-    link.rel = 'manifest';
-    link.href = manifestURL;
-    document.getElementsByTagName('head')[0].appendChild(link);
-    
-    // Set Apple Touch Icon for iOS
-    var appleIcon = document.createElement('link');
-    appleIcon.rel = 'apple-touch-icon';
-    appleIcon.href = '{LOGO_URL}';
-    document.getElementsByTagName('head')[0].appendChild(appleIcon);
-</script>
-"""
+st.set_page_config(
+    page_title="JA.PREMIER", 
+    layout="centered", 
+    page_icon=LOGO_URL  # This forces the Shield logo into the browser tab/icon
+)
 
-# Inject the script invisibly
-st.components.v1.html(manifest_js, height=0, width=0)
+# --- 1.1. FORCED BRANDING SCRIPT ---
+# This script "hijacks" the page title and icon once the browser loads it
+st.markdown(f"""
+    <script>
+        // Force the title and icon again after the page loads
+        var link = document.querySelector("link[rel*='icon']") || document.createElement('link');
+        link.type = 'image/png';
+        link.rel = 'shortcut icon';
+        link.href = '{LOGO_URL}';
+        document.getElementsByTagName('head')[0].appendChild(link);
+        document.title = "JA.PREMIER";
+    </script>
+    <style>
+        /* Hide the Streamlit Header and Footer for a cleaner look */
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        header {{visibility: hidden;}}
+    </style>
+""", unsafe_allow_html=True)
 
+# ... [Keep your ATTENDANCE_SCRIPT_URL and other variables here] ...
 # Still keep the theme color for the browser address bar
 st.markdown(f'<meta name="theme-color" content="{AGENCY_BLUE}">', unsafe_allow_html=True)
 ATTENDANCE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
