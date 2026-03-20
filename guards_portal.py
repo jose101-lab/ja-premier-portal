@@ -4,7 +4,6 @@ import pandas as pd
 from datetime import datetime
 import os
 import base64
-import json
 
 # --- 1. INITIAL CONFIGURATION ---
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
@@ -16,14 +15,10 @@ st.set_page_config(
 )
 
 # --- 2. FORCED BRANDING, PWA MANIFEST & UI CLEANUP ---
-# Injects apple-touch-icon, web app manifest, and theme-color so the JA.PREMIER logo
-# appears on the mobile home screen instead of the default Streamlit icon.
+# Uses a MutationObserver to continuously overwrite ANY favicon/icon tag that
+# Streamlit injects, so the JA.PREMIER logo always wins — on browser tab AND
+# mobile home screen (iOS apple-touch-icon + Android PWA manifest).
 st.markdown(f"""
-    <link rel="apple-touch-icon" href="{LOGO_URL}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{LOGO_URL}">
-    <link rel="apple-touch-icon" sizes="152x152" href="{LOGO_URL}">
-    <link rel="apple-touch-icon" sizes="120x120" href="{LOGO_URL}">
-    <link rel="shortcut icon" href="{LOGO_URL}" type="image/png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="JA.PREMIER">
@@ -32,48 +27,92 @@ st.markdown(f"""
     <meta name="application-name" content="JA.PREMIER">
 
     <script>
-        // Dynamically inject a web app manifest so Android/Chrome home screen
-        // also picks up the JA.PREMIER logo instead of Streamlit's default.
-        (function() {{
+    (function() {{
+        var LOGO = "{LOGO_URL}";
+
+        // ── 1. Inject / update every icon-related <link> in <head> ──────────
+        function forceIcons() {{
+            var head = document.head;
+
+            // Remove ALL existing favicon / apple-touch-icon / manifest links
+            // so Streamlit's copies cannot compete.
+            head.querySelectorAll(
+                'link[rel*="icon"], link[rel="apple-touch-icon"], link[rel="manifest"]'
+            ).forEach(function(el) {{ el.parentNode.removeChild(el); }});
+
+            // Shortcut icon (browser tab)
+            var fi = document.createElement('link');
+            fi.rel  = 'shortcut icon';
+            fi.type = 'image/png';
+            fi.href = LOGO + '?v=' + Date.now();   // cache-bust
+            head.appendChild(fi);
+
+            // Apple touch icons (iOS "Add to Home Screen")
+            [57,60,72,76,114,120,144,152,180].forEach(function(sz) {{
+                var a = document.createElement('link');
+                a.rel   = 'apple-touch-icon';
+                a.sizes = sz + 'x' + sz;
+                a.href  = LOGO;
+                head.appendChild(a);
+            }});
+
+            // PWA manifest (Android / Chrome "Add to Home Screen")
             var manifest = {{
-                "name": "JA.PREMIER",
-                "short_name": "JA.PREMIER",
-                "description": "JA.PREMIER Security Agency Portal",
-                "start_url": "/",
-                "display": "standalone",
-                "background_color": "#001f3f",
-                "theme_color": "#001f3f",
-                "orientation": "portrait",
-                "icons": [
-                    {{"src": "{LOGO_URL}", "sizes": "192x192", "type": "image/png"}},
-                    {{"src": "{LOGO_URL}", "sizes": "512x512", "type": "image/png"}}
+                name: "JA.PREMIER",
+                short_name: "JA.PREMIER",
+                description: "JA.PREMIER Security Agency Portal",
+                start_url: window.location.pathname,
+                display: "standalone",
+                background_color: "#001f3f",
+                theme_color: "#001f3f",
+                orientation: "portrait",
+                icons: [
+                    {{src: LOGO, sizes: "192x192", type: "image/png", purpose: "any maskable"}},
+                    {{src: LOGO, sizes: "512x512", type: "image/png", purpose: "any maskable"}}
                 ]
             }};
-            var blob = new Blob([JSON.stringify(manifest)], {{type: 'application/json'}});
-            var url  = URL.createObjectURL(blob);
-            var link = document.createElement('link');
-            link.rel  = 'manifest';
-            link.href = url;
-            document.head.appendChild(link);
-
-            // Force favicon override
-            var favicon = document.querySelector("link[rel*='icon']") || document.createElement('link');
-            favicon.type = 'image/png';
-            favicon.rel  = 'shortcut icon';
-            favicon.href = '{LOGO_URL}';
-            document.head.appendChild(favicon);
+            var blob = new Blob([JSON.stringify(manifest)], {{type:'application/json'}});
+            var mLink = document.createElement('link');
+            mLink.rel  = 'manifest';
+            mLink.href = URL.createObjectURL(blob);
+            head.appendChild(mLink);
 
             document.title = "JA.PREMIER";
-        }})();
+        }}
+
+        // ── 2. Run immediately, then watch for Streamlit re-injections ───────
+        forceIcons();
+
+        var observer = new MutationObserver(function(mutations) {{
+            var needsReset = false;
+            mutations.forEach(function(m) {{
+                m.addedNodes.forEach(function(node) {{
+                    if (node.nodeName === 'LINK') {{
+                        var rel = (node.rel || '').toLowerCase();
+                        if (rel.includes('icon') || rel === 'manifest') {{
+                            needsReset = true;
+                        }}
+                    }}
+                }});
+            }});
+            if (needsReset) {{
+                observer.disconnect();   // pause to avoid re-entry
+                forceIcons();
+                observer.observe(document.head, {{childList: true, subtree: false}});
+            }}
+        }});
+
+        observer.observe(document.head, {{childList: true, subtree: false}});
+
+        // ── 3. Also fire once the full page has loaded (belt + suspenders) ───
+        window.addEventListener('load', forceIcons);
+    }})();
     </script>
 
     <style>
-        /* Hide Streamlit chrome */
         #MainMenu  {{visibility: hidden;}}
         footer     {{visibility: hidden;}}
         header     {{visibility: hidden;}}
-
-        /* Remove default top padding */
         .block-container {{
             padding-top: 2rem;
             padding-bottom: 2rem;
