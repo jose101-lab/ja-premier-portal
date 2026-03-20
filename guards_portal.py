@@ -5,21 +5,21 @@ from datetime import datetime
 import os
 import base64
 
-# --- 1. INITIAL CONFIGURATION (The Official Way) ---
-# We use the direct URL to your logo here so Streamlit pulls it immediately
+# --- 1. INITIAL CONFIGURATION ---
+# The 'page_icon' here is the primary way Streamlit tells the browser what to show.
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
 
 st.set_page_config(
     page_title="JA.PREMIER", 
     layout="centered", 
-    page_icon=LOGO_URL  # This forces the Shield logo into the browser tab/icon
+    page_icon=LOGO_URL
 )
 
-# --- 1.1. FORCED BRANDING SCRIPT ---
-# This script "hijacks" the page title and icon once the browser loads it
+# --- 2. FORCED BRANDING & UI CLEANUP ---
+# This script hides Streamlit elements and forces your logo into the browser's memory.
 st.markdown(f"""
     <script>
-        // Force the title and icon again after the page loads
+        // Force the title and icon again once the DOM is ready
         var link = document.querySelector("link[rel*='icon']") || document.createElement('link');
         link.type = 'image/png';
         link.rel = 'shortcut icon';
@@ -28,25 +28,28 @@ st.markdown(f"""
         document.title = "JA.PREMIER";
     </script>
     <style>
-        /* Hide the Streamlit Header and Footer for a cleaner look */
+        /* Hide the Streamlit Menu, Footer, and Header for a professional app feel */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         header {{visibility: hidden;}}
+        
+        /* Remove extra padding at the top */
+        .block-container {{
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }}
     </style>
 """, unsafe_allow_html=True)
 
-# ... [Keep your ATTENDANCE_SCRIPT_URL and other variables here] ...
-# Still keep the theme color for the browser address bar
-st.markdown(f'<meta name="theme-color" content="{AGENCY_BLUE}">', unsafe_allow_html=True)
 ATTENDANCE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
 
 base_path = os.path.dirname(os.path.abspath(__file__))
 logo_path = os.path.join(base_path, "agency_logo.png")
 
-# --- 2. CONNECT TO GOOGLE SHEETS ---
+# --- 3. CONNECT TO GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. UTILITY FUNCTIONS ---
+# --- 4. UTILITY FUNCTIONS ---
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
         data = f.read()
@@ -92,12 +95,12 @@ def submit_request(req_type, details):
         except Exception as e:
             st.error(f"Error: {e}")
 
-# --- 4. SESSION MANAGEMENT ---
+# --- 5. SESSION MANAGEMENT ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data = None
 
-# --- 5. LOGIN SCREEN ---
+# --- 6. LOGIN SCREEN ---
 if not st.session_state.authenticated:
     st.markdown(
         f"""
@@ -115,7 +118,7 @@ if not st.session_state.authenticated:
         }}
         .welcome-text {{
             text-align: center;
-            color: {AGENCY_BLUE};
+            color: #001f3f;
             font-weight: bold;
             margin-bottom: 15px;
             font-size: 1.1rem;
@@ -131,7 +134,7 @@ if not st.session_state.authenticated:
             unsafe_allow_html=True
         )
     
-    st.markdown(f"<h1 style='text-align: center; color: {AGENCY_BLUE}; margin-top: 0px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #001f3f; margin-top: 0px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
     
     mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
     
@@ -172,7 +175,7 @@ if not st.session_state.authenticated:
             except Exception as e:
                 st.error(f"Login System Error: {e}")
 
-# --- 6. LOGGED IN CONTENT ---
+# --- 7. LOGGED IN CONTENT ---
 else:
     user = st.session_state.user_data
     
