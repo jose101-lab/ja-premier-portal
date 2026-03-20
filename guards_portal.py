@@ -5,25 +5,62 @@ from datetime import datetime
 import os
 import base64
 
-# --- 1.1. HIDDEN APP METADATA ---
-# We added '?v=2' to force the phone to refresh the icon cache
-LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png?v=2"
+# --- 1.1. DYNAMIC MANIFEST INJECTION ---
+LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
 AGENCY_BLUE = "#001f3f"
 
-st.markdown(f"""
-    <div style="display: none;">
-        <head>
-            <link rel="apple-touch-icon" href="{LOGO_URL}">
-            <link rel="icon" type="image/png" sizes="192x192" href="{LOGO_URL}">
-            <link rel="icon" type="image/png" sizes="32x32" href="{LOGO_URL}">
-            <meta name="mobile-web-app-capable" content="yes">
-            <meta name="apple-mobile-web-app-capable" content="yes">
-            <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-            <meta name="theme-color" content="{AGENCY_BLUE}">
-        </meta>
-    </div>
-""", unsafe_allow_html=True)
+# This JavaScript creates a "Web Manifest" on the fly. 
+# This is what Chrome uses for the "Add to Home Screen" icon and name.
+manifest_js = f"""
+<script>
+    var myDynamicManifest = {{
+      "name": "JA.PREMIER Guard Portal",
+      "short_name": "JA.PREMIER",
+      "start_url": ".",
+      "display": "standalone",
+      "background_color": "{AGENCY_BLUE}",
+      "theme_color": "{AGENCY_BLUE}",
+      "icons": [
+        {{
+          "src": "{LOGO_URL}",
+          "sizes": "192x192",
+          "type": "image/png"
+        }},
+        {{
+          "src": "{LOGO_URL}",
+          "sizes": "512x512",
+          "type": "image/png"
+        }}
+      ]
+    }};
+    
+    const stringManifest = JSON.stringify(myDynamicManifest);
+    const blob = new Blob([stringManifest], {{type: 'application/json'}});
+    const manifestURL = URL.createObjectURL(blob);
+    
+    // Check if manifest already exists, if so remove it
+    var oldManifest = document.querySelector('link[rel="manifest"]');
+    if (oldManifest) oldManifest.remove();
+    
+    // Add the new dynamic manifest
+    var link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = manifestURL;
+    document.getElementsByTagName('head')[0].appendChild(link);
+    
+    // Set Apple Touch Icon for iOS
+    var appleIcon = document.createElement('link');
+    appleIcon.rel = 'apple-touch-icon';
+    appleIcon.href = '{LOGO_URL}';
+    document.getElementsByTagName('head')[0].appendChild(appleIcon);
+</script>
+"""
 
+# Inject the script invisibly
+st.components.v1.html(manifest_js, height=0, width=0)
+
+# Still keep the theme color for the browser address bar
+st.markdown(f'<meta name="theme-color" content="{AGENCY_BLUE}">', unsafe_allow_html=True)
 ATTENDANCE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
 
 base_path = os.path.dirname(os.path.abspath(__file__))
