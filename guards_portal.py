@@ -300,89 +300,102 @@ else:
         with tab4:
             st.subheader("My Payslip")
             try:
-                payroll_df = get_data("Payroll")
+                # Check if admin has published payslips
+                ctrl_df      = get_data("PayrollControl")
+                is_published = (
+                    not ctrl_df.empty and
+                    str(ctrl_df.iloc[0].get("Status", "")).upper() == "PUBLISHED"
+                )
 
-                if payroll_df.empty:
-                    st.info("No payroll data available yet.")
+                if not is_published:
+                    st.markdown(
+                        """<div style="background:#f8f9fa;border-left:6px solid #001f3f;"""
+                        """padding:20px;border-radius:8px;text-align:center;margin-top:20px;">"""
+                        """<div style="font-size:40px;margin-bottom:10px;">&#128203;</div>"""
+                        """<div style="font-size:16px;font-weight:bold;color:#001f3f;">"""
+                        """No payslip available yet</div>"""
+                        """<div style="font-size:13px;color:#666;margin-top:6px;">"""
+                        """Your payslip will appear here once admin releases it.</div>"""
+                        """</div>""",
+                        unsafe_allow_html=True
+                    )
                 else:
-                    guard_name_upper = str(user['Name']).strip().upper()
-                    payroll_df['_name_upper'] = payroll_df['Employee Name'].astype(str).str.strip().str.upper()
-                    my_records = payroll_df[payroll_df['_name_upper'] == guard_name_upper].copy()
+                    payroll_df = get_data("Payroll")
 
-                    if my_records.empty:
-                        st.warning("No payslip found for your account. Contact admin.")
+                    if payroll_df.empty:
+                        st.info("No payroll data available yet.")
                     else:
-                        # Let guard pick pay period if multiple exist
-                        if len(my_records) > 1:
-                            periods  = my_records['Date Covered'].tolist()
-                            chosen   = st.selectbox("Select Pay Period", periods)
-                            row_data = my_records[my_records['Date Covered'] == chosen].iloc[0].to_dict()
+                        guard_name_upper = str(user["Name"]).strip().upper()
+                        payroll_df["_name_upper"] = payroll_df["Employee Name"].astype(str).str.strip().str.upper()
+                        my_records = payroll_df[payroll_df["_name_upper"] == guard_name_upper].copy()
+
+                        if my_records.empty:
+                            st.warning("No payslip found for your account. Contact admin.")
                         else:
-                            row_data = my_records.iloc[0].to_dict()
-                            st.caption(f"Pay Period: **{row_data.get('Date Covered', '')}**")
+                            if len(my_records) > 1:
+                                periods  = my_records["Date Covered"].tolist()
+                                chosen   = st.selectbox("Select Pay Period", periods)
+                                row_data = my_records[my_records["Date Covered"] == chosen].iloc[0].to_dict()
+                            else:
+                                row_data = my_records.iloc[0].to_dict()
+                                st.caption(f"Pay Period: **{row_data.get('Date Covered', '')}**")
 
-                        # Numeric safety
-                        numeric_cols = [
-                            "Daily Rate", "Basic Salary", "Holiday", "Overtime pay",
-                            "Night Differential", "5 days Incentives", "Uniform Allowance",
-                            "Gross Pay", "SSS", "Pag-Ibig", "PhilHealth", "Loans",
-                            "FA Bonds", "Cash Advance", "Total Deduction", "NET PAY"
-                        ]
-                        for col in numeric_cols:
-                            try:    row_data[col] = float(row_data.get(col, 0) or 0)
-                            except: row_data[col] = 0.0
+                            numeric_cols = [
+                                "Daily Rate", "Basic Salary", "Holiday", "Overtime pay",
+                                "Night Differential", "5 days Incentives", "Uniform Allowance",
+                                "Gross Pay", "SSS", "Pag-Ibig", "PhilHealth", "Loans",
+                                "FA Bonds", "Cash Advance", "Total Deduction", "NET PAY"
+                            ]
+                            for col in numeric_cols:
+                                try:    row_data[col] = float(str(row_data.get(col, 0) or 0).replace(",", ""))
+                                except: row_data[col] = 0.0
 
-                        # Net Pay banner
-                        st.markdown(f"""
-                            <div style="background:#001f3f;color:white;padding:16px;
-                                        border-radius:12px;text-align:center;margin-bottom:12px;">
-                                <div style="font-size:12px;opacity:0.7;">NET PAY</div>
-                                <div style="font-size:28px;font-weight:bold;">
-                                    &#8369; {row_data['NET PAY']:,.2f}
-                                </div>
-                                <div style="font-size:11px;opacity:0.6;">
-                                    {row_data.get('Date Covered', '')}
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                            net = row_data["NET PAY"]
+                            period = row_data.get("Date Covered", "")
+                            st.markdown(
+                                f"""<div style="background:#001f3f;color:white;padding:16px;"""
+                                f"""border-radius:12px;text-align:center;margin-bottom:12px;">"""
+                                f"""<div style="font-size:12px;opacity:0.7;">NET PAY</div>"""
+                                f"""<div style="font-size:28px;font-weight:bold;">&#8369; {net:,.2f}</div>"""
+                                f"""<div style="font-size:11px;opacity:0.6;">{period}</div></div>""",
+                                unsafe_allow_html=True
+                            )
 
-                        # Earnings vs Deductions
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            st.markdown("**Earnings**")
-                            st.write(f"Basic Salary: ₱{row_data['Basic Salary']:,.2f}")
-                            st.write(f"Holiday: ₱{row_data['Holiday']:,.2f}")
-                            st.write(f"Overtime: ₱{row_data['Overtime pay']:,.2f}")
-                            st.write(f"Night Diff: ₱{row_data['Night Differential']:,.2f}")
-                            st.write(f"5-Day Incentive: ₱{row_data['5 days Incentives']:,.2f}")
-                            st.write(f"Uniform Allow.: ₱{row_data['Uniform Allowance']:,.2f}")
-                            st.markdown(f"**Gross Pay: ₱{row_data['Gross Pay']:,.2f}**")
-                        with c2:
-                            st.markdown("**Deductions**")
-                            st.write(f"SSS: ₱{row_data['SSS']:,.2f}")
-                            st.write(f"Pag-Ibig: ₱{row_data['Pag-Ibig']:,.2f}")
-                            st.write(f"PhilHealth: ₱{row_data['PhilHealth']:,.2f}")
-                            st.write(f"Loans: ₱{row_data['Loans']:,.2f}")
-                            st.write(f"FA Bonds: ₱{row_data['FA Bonds']:,.2f}")
-                            st.write(f"Cash Advance: ₱{row_data['Cash Advance']:,.2f}")
-                            st.markdown(f"**Total Deduction: ₱{row_data['Total Deduction']:,.2f}**")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown("**Earnings**")
+                                st.write(f"Basic Salary: ₱{row_data['Basic Salary']:,.2f}")
+                                st.write(f"Holiday: ₱{row_data['Holiday']:,.2f}")
+                                st.write(f"Overtime: ₱{row_data['Overtime pay']:,.2f}")
+                                st.write(f"Night Diff: ₱{row_data['Night Differential']:,.2f}")
+                                st.write(f"5-Day Incentive: ₱{row_data['5 days Incentives']:,.2f}")
+                                st.write(f"Uniform Allow.: ₱{row_data['Uniform Allowance']:,.2f}")
+                                st.markdown(f"**Gross Pay: ₱{row_data['Gross Pay']:,.2f}**")
+                            with c2:
+                                st.markdown("**Deductions**")
+                                st.write(f"SSS: ₱{row_data['SSS']:,.2f}")
+                                st.write(f"Pag-Ibig: ₱{row_data['Pag-Ibig']:,.2f}")
+                                st.write(f"PhilHealth: ₱{row_data['PhilHealth']:,.2f}")
+                                st.write(f"Loans: ₱{row_data['Loans']:,.2f}")
+                                st.write(f"FA Bonds: ₱{row_data['FA Bonds']:,.2f}")
+                                st.write(f"Cash Advance: ₱{row_data['Cash Advance']:,.2f}")
+                                st.markdown(f"**Total Deduction: ₱{row_data['Total Deduction']:,.2f}**")
 
-                        st.divider()
+                            st.divider()
 
-                        # Download PDF
-                        pdf_bytes = generate_payslip_pdf(row_data)
-                        filename  = (
-                            f"Payslip_{str(user['Name']).replace(' ', '_')}_"
-                            f"{str(row_data.get('Date Covered', '')).replace('/', '_')}.pdf"
-                        )
-                        st.download_button(
-                            label="Download My Payslip PDF",
-                            data=pdf_bytes,
-                            file_name=filename,
-                            mime="application/pdf",
-                            use_container_width=True,
-                            type="primary"
-                        )
+                            pdf_bytes = generate_payslip_pdf(row_data)
+                            filename  = (
+                                f"Payslip_{str(user['Name']).replace(' ', '_')}_"
+                                f"{str(row_data.get('Date Covered', '')).replace('/', '_')}.pdf"
+                            )
+                            st.download_button(
+                                label="Download My Payslip PDF",
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime="application/pdf",
+                                use_container_width=True,
+                                type="primary"
+                            )
 
             except Exception as e:
                 st.error(f"Could not load payslip: {e}")
