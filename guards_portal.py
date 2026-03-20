@@ -1,3 +1,4 @@
+import patch_favicon          # MUST be first — physically replaces Streamlit's favicon files on disk
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
@@ -14,109 +15,23 @@ st.set_page_config(
     page_icon=LOGO_URL
 )
 
-# --- 2. FORCED BRANDING, PWA MANIFEST & UI CLEANUP ---
-# Uses a MutationObserver to continuously overwrite ANY favicon/icon tag that
-# Streamlit injects, so the JA.PREMIER logo always wins — on browser tab AND
-# mobile home screen (iOS apple-touch-icon + Android PWA manifest).
-st.markdown(f"""
+# --- 2. UI CLEANUP ---
+# Favicon/icons are handled at the file-system level by patch_favicon.py.
+# This block only hides Streamlit's default chrome.
+st.markdown("""
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="JA.PREMIER">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#001f3f">
-    <meta name="application-name" content="JA.PREMIER">
-
-    <script>
-    (function() {{
-        var LOGO = "{LOGO_URL}";
-
-        // ── 1. Inject / update every icon-related <link> in <head> ──────────
-        function forceIcons() {{
-            var head = document.head;
-
-            // Remove ALL existing favicon / apple-touch-icon / manifest links
-            // so Streamlit's copies cannot compete.
-            head.querySelectorAll(
-                'link[rel*="icon"], link[rel="apple-touch-icon"], link[rel="manifest"]'
-            ).forEach(function(el) {{ el.parentNode.removeChild(el); }});
-
-            // Shortcut icon (browser tab)
-            var fi = document.createElement('link');
-            fi.rel  = 'shortcut icon';
-            fi.type = 'image/png';
-            fi.href = LOGO + '?v=' + Date.now();   // cache-bust
-            head.appendChild(fi);
-
-            // Apple touch icons (iOS "Add to Home Screen")
-            [57,60,72,76,114,120,144,152,180].forEach(function(sz) {{
-                var a = document.createElement('link');
-                a.rel   = 'apple-touch-icon';
-                a.sizes = sz + 'x' + sz;
-                a.href  = LOGO;
-                head.appendChild(a);
-            }});
-
-            // PWA manifest (Android / Chrome "Add to Home Screen")
-            var manifest = {{
-                name: "JA.PREMIER",
-                short_name: "JA.PREMIER",
-                description: "JA.PREMIER Security Agency Portal",
-                start_url: window.location.pathname,
-                display: "standalone",
-                background_color: "#001f3f",
-                theme_color: "#001f3f",
-                orientation: "portrait",
-                icons: [
-                    {{src: LOGO, sizes: "192x192", type: "image/png", purpose: "any maskable"}},
-                    {{src: LOGO, sizes: "512x512", type: "image/png", purpose: "any maskable"}}
-                ]
-            }};
-            var blob = new Blob([JSON.stringify(manifest)], {{type:'application/json'}});
-            var mLink = document.createElement('link');
-            mLink.rel  = 'manifest';
-            mLink.href = URL.createObjectURL(blob);
-            head.appendChild(mLink);
-
-            document.title = "JA.PREMIER";
-        }}
-
-        // ── 2. Run immediately, then watch for Streamlit re-injections ───────
-        forceIcons();
-
-        var observer = new MutationObserver(function(mutations) {{
-            var needsReset = false;
-            mutations.forEach(function(m) {{
-                m.addedNodes.forEach(function(node) {{
-                    if (node.nodeName === 'LINK') {{
-                        var rel = (node.rel || '').toLowerCase();
-                        if (rel.includes('icon') || rel === 'manifest') {{
-                            needsReset = true;
-                        }}
-                    }}
-                }});
-            }});
-            if (needsReset) {{
-                observer.disconnect();   // pause to avoid re-entry
-                forceIcons();
-                observer.observe(document.head, {{childList: true, subtree: false}});
-            }}
-        }});
-
-        observer.observe(document.head, {{childList: true, subtree: false}});
-
-        // ── 3. Also fire once the full page has loaded (belt + suspenders) ───
-        window.addEventListener('load', forceIcons);
-    }})();
-    </script>
-
     <style>
-        #MainMenu  {{visibility: hidden;}}
-        footer     {{visibility: hidden;}}
-        header     {{visibility: hidden;}}
-        .block-container {{
+        #MainMenu  { visibility: hidden; }
+        footer     { visibility: hidden; }
+        header     { visibility: hidden; }
+        .block-container {
             padding-top: 2rem;
             padding-bottom: 2rem;
-        }}
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -173,7 +88,7 @@ def submit_request(req_type, details):
             existing_reqs = get_data("Request")
             updated_reqs = pd.concat([existing_reqs, new_req], ignore_index=True)
             conn.update(worksheet="Request", data=updated_reqs)
-            st.success("✅ Request sent!")
+            st.success("Request sent!")
             st.cache_data.clear()
         except Exception as e:
             st.error(f"Error: {e}")
@@ -194,10 +109,7 @@ if not st.session_state.authenticated:
             width: 100%;
             margin-bottom: 10px;
         }
-        .logo-img {
-            width: 150px;
-            height: auto;
-        }
+        .logo-img { width: 150px; height: auto; }
         .welcome-text {
             text-align: center;
             color: #001f3f;
@@ -280,7 +192,7 @@ else:
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
     if is_temp:
-        st.title("🔐 Update Password")
+        st.title("Update Password")
         new_pass     = st.text_input("New Password", type="password")
         confirm_pass = st.text_input("Confirm", type="password")
         if st.button("Update"):
@@ -292,7 +204,7 @@ else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
 
         with st.spinner("Fetching Schedule..."):
-            guards_tab_df     = get_data("GUARDS")
+            guards_tab_df      = get_data("GUARDS")
             current_guard_name = str(user['Name']).strip().upper()
             guard_assignments  = guards_tab_df[
                 guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name
@@ -308,13 +220,13 @@ else:
                 assigned_site = "Floating / Unassigned"
 
         st.title(f"Hello, {user['Name']}")
-        tab1, tab2, tab3 = st.tabs(["🕒 Attendance", "📩 Requests", "👤 Profile"])
+        tab1, tab2, tab3 = st.tabs(["Attendance", "Requests", "Profile"])
 
         with tab1:
             st.subheader("Daily Time Record")
-            st.info(f"📍 Assigned to: **{assigned_site}**")
+            st.info(f"Assigned to: **{assigned_site}**")
 
-            st.markdown("### 📋 Post Orders")
+            st.markdown("### Post Orders")
             try:
                 orders_df = get_data("PostOrders")
                 orders_df['Site_Clean'] = orders_df['Site'].astype(str).str.strip().str.upper()
@@ -328,7 +240,7 @@ else:
                         specific_order = site_orders.iloc[0][found_col]
                         st.warning(f"**Instructions:**\n\n{specific_order}")
 
-                        if st.button("✔️ CONFIRM READ", use_container_width=True):
+                        if st.button("CONFIRM READ", use_container_width=True):
                             new_log = pd.DataFrame([{
                                 "Timestamp":     datetime.now().strftime("%Y-%m-%d %I:%M %p"),
                                 "Guard_Name":    user['Name'],
@@ -344,13 +256,13 @@ else:
                             except:
                                 st.error("Log error.")
                 else:
-                    st.success("✅ Standard protocols apply today.")
+                    st.success("Standard protocols apply today.")
             except Exception:
                 st.caption("Post Orders ready.")
 
             st.divider()
             unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
-            st.link_button("🚀 CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
+            st.link_button("CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
 
         with tab2:
             st.subheader("New Request")
