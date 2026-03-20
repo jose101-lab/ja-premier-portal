@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- ═══ JA.PREMIER BRANDING ═══ -->
+    <title>JA.PREMIER</title>
+
+    <!-- Browser tab favicon -->
+    <link rel="icon" type="image/png" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="shortcut icon" type="image/png" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+
+    <!-- iOS "Add to Home Screen" icon -->
+    <link rel="apple-touch-icon" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="57x57"   href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="72x72"   href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="76x76"   href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="114x114" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="https://jose101-lab.github.io/ja-premier-portal/agency_logo.png" />
+
+    <!-- iOS standalone web app meta -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="JA.PREMIER" />
+
+    <!-- Android / Chrome "Add to Home Screen" -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="JA.PREMIER" />
+    <meta name="theme-color" content="#001f3f" />
+
+    <!-- PWA manifest (inline via data URI so no extra file needed) -->
+    <link rel="manifest" href="data:application/json,{
+      %22name%22:%22JA.PREMIER%22,
+      %22short_name%22:%22JA.PREMIER%22,
+      %22description%22:%22JA.PREMIER Security Agency Portal%22,
+      %22start_url%22:%22.%22,
+      %22display%22:%22standalone%22,
+      %22background_color%22:%22%23001f3f%22,
+      %22theme_color%22:%22%23001f3f%22,
+      %22icons%22:[
+        {%22src%22:%22https://jose101-lab.github.io/ja-premier-portal/agency_logo.png%22,%22sizes%22:%22192x192%22,%22type%22:%22image/png%22,%22purpose%22:%22any%20maskable%22},
+        {%22src%22:%22https://jose101-lab.github.io/ja-premier-portal/agency_logo.png%22,%22sizes%22:%22512x512%22,%22type%22:%22image/png%22,%22purpose%22:%22any%20maskable%22}
+      ]
+    }" />
+
+    <!-- Streamlit requires these exact placeholders - DO NOT REMOVE -->
+    %(head)s
+  </head>
+  <body>
+    <!-- Streamlit requires this exact placeholder - DO NOT REMOVE -->
+    %(body)s
+  </body>
+</html>
