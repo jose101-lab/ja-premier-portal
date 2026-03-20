@@ -61,13 +61,17 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data = None
 
-# --- 5. LOGIN SCREEN ---
+# --- 5. LOGIN SCREEN (REFINED FOR MOBILE PROPORTIONS) ---
 if not st.session_state.authenticated:
     if os.path.exists(logo_path):
-        col1, col2, col3 = st.columns([3, 2, 3])
-        with col2: st.image(logo_path, use_container_width=True)
+        # Using 3 columns to center the logo
+        # The middle column gets 3 units of space, sides get 2
+        empty_l, logo_col, empty_r = st.columns([2, 3, 2])
+        with logo_col: 
+            # width=180 is the "sweet spot" for mobile agency logos
+            st.image(logo_path, width=180)
     
-    st.markdown("<h1 style='text-align: center;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #001f3f;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
     mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
     password_input = st.text_input("Password", type="password")
 
@@ -124,7 +128,6 @@ else:
             guard_assignments = guards_tab_df[guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name]
             
             if not guard_assignments.empty:
-                # Ensure Effective Date is handled for latest assignment
                 guard_assignments['Effective Date'] = pd.to_datetime(guard_assignments['Effective Date'], dayfirst=True, errors='coerce')
                 latest_assignment = guard_assignments.sort_values('Effective Date', ascending=False).iloc[0]
                 assigned_site = str(latest_assignment['Site']).strip()
@@ -138,16 +141,13 @@ else:
             st.subheader("Daily Time Record")
             st.info(f"📍 Currently Assigned to: **{assigned_site}**")
             
-            # --- DIGITAL POST ORDERS SECTION (FIXED) ---
             st.markdown("### 📋 Digital Post Orders")
             try:
                 orders_df = get_data("PostOrders")
-                # Normalize Site column for matching
                 orders_df['Site_Clean'] = orders_df['Site'].astype(str).str.strip().str.upper()
                 site_orders = orders_df[orders_df['Site_Clean'] == assigned_site.upper()]
                 
                 if not site_orders.empty:
-                    # Look for 'Orders' or 'Order_Content' column
                     possible_cols = ['Orders', 'Order_Content', 'Instructions']
                     found_col = next((c for c in possible_cols if c in site_orders.columns), None)
                     
@@ -155,31 +155,27 @@ else:
                         specific_order = site_orders.iloc[0][found_col]
                         st.warning(f"**Instructions for {assigned_site}:**\n\n{specific_order}")
                         
-                        # --- ACKNOWLEDGEMENT LOGIC ---
                         if st.button("✔️ I HAVE READ & UNDERSTOOD", use_container_width=True):
                             new_log = pd.DataFrame([{
                                 "Timestamp": datetime.now().strftime("%Y-%m-%d %I:%M %p"),
                                 "Guard_Name": user['Name'],
                                 "Site": assigned_site,
-                                "Order_Content": specific_order, # Sent back to Command Center
+                                "Order_Content": specific_order,
                                 "Status": "CONFIRMED READ"
                             }])
                             try:
                                 existing_logs = get_data("PostOrderLogs")
                                 updated_logs = pd.concat([existing_logs, new_log], ignore_index=True)
                                 conn.update(worksheet="PostOrderLogs", data=updated_logs)
-                                st.success("Acknowledgement sent to JA.PREMIER Command Center!")
+                                st.success("Acknowledgement sent!")
                             except Exception as log_err:
-                                st.error("Could not save log. Ensure 'PostOrderLogs' tab exists.")
-                    else:
-                        st.error("Sheet Error: Column 'Orders' not found in PostOrders tab.")
+                                st.error("Log error.")
                 else:
-                    st.success("✅ No special instructions for this site today.")
+                    st.success("✅ No special instructions for today.")
             except Exception as e:
                 st.caption("Standard Post Orders apply.")
             
             st.divider()
-            # Generate Clock URL
             unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
             st.link_button("🚀 CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
             
@@ -201,9 +197,7 @@ else:
                 
                 if not my_reqs.empty:
                     display_reqs = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values('Date', ascending=False)
-                    # Use style.map for modern Pandas
                     styled_display = display_reqs.style.map(style_status, subset=['Status'])
-
                     st.dataframe(styled_display, hide_index=True, use_container_width=True)
                     st.caption("🟡 PENDING | 🟢 APPROVED | 🔴 DENIED")
                 else:
