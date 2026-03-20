@@ -3,6 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 import os
+import base64
 
 # --- 1. INITIAL CONFIGURATION ---
 st.set_page_config(page_title="JA.PREMIER Guard Portal", layout="centered", page_icon="🛡️")
@@ -16,6 +17,11 @@ logo_path = os.path.join(base_path, "agency_logo.png")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 3. UTILITY FUNCTIONS ---
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
 def clean_to_digits(value):
     v = str(value).replace('.0', '').strip()
     digits = "".join(filter(str.isdigit, v))
@@ -61,40 +67,47 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data = None
 
-# --- 5. LOGIN SCREEN (CSS CENTERED & WELCOME MESSAGE) ---
+# --- 5. LOGIN SCREEN (ABSOLUTE CENTERING & AGENCY BLUE WELCOME) ---
 if not st.session_state.authenticated:
-    # A. CSS for Perfect Mobile Centering
+    # A. CSS for Force Centering and Blue Welcome Text
     st.markdown(
         """
         <style>
-        .logo-container {
+        .force-center {
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 10px 0px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .logo-img {
+            width: 150px;
+            height: auto;
         }
         .welcome-text {
             text-align: center;
-            color: #28a745;
+            color: #001f3f; /* Agency Blue */
             font-weight: bold;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
         }
         </style>
         """, unsafe_allow_html=True
     )
 
-    # B. Render Centered Logo
+    # B. Render Centered Logo using HTML Injection
     if os.path.exists(logo_path):
-        st.markdown('<div class="logo-container">', unsafe_allow_html=True)
-        st.image(logo_path, width=160)
-        st.markdown('</div>', unsafe_allow_html=True)
+        binary_logo = get_base64_of_bin_file(logo_path)
+        st.markdown(
+            f'<div class="force-center"><img src="data:image/png;base64,{binary_logo}" class="logo-img"></div>',
+            unsafe_allow_html=True
+        )
     
-    st.markdown("<h1 style='text-align: center; color: #001f3f; margin-top: -10px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #001f3f; margin-top: 0px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
     
-    # C. Inputs
     mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
     
-    # D. Live Welcome Message Logic
+    # C. Dynamic Welcome Message
     if mobile_input:
         try:
             roster_df = get_data("Rosters")
@@ -103,10 +116,10 @@ if not st.session_state.authenticated:
             match = roster_df[roster_df['Mobile_Number_Clean'] == search_mob]
             
             if not match.empty:
-                guard_first_name = match.iloc[0]['Name'].split()[0]
-                st.markdown(f'<p class="welcome-text">Welcome, {guard_first_name}!</p>', unsafe_allow_html=True)
+                guard_name = match.iloc[0]['Name']
+                st.markdown(f'<p class="welcome-text">Welcome, {guard_name}!</p>', unsafe_allow_html=True)
         except:
-            pass # Silent fail if data hasn't loaded yet
+            pass
 
     password_input = st.text_input("Password", type="password")
 
@@ -136,7 +149,6 @@ if not st.session_state.authenticated:
 else:
     user = st.session_state.user_data
     
-    # Clean Security ID
     raw_id = user.get('Security_ID', 'N/A')
     try:
         clean_id = str(int(float(raw_id))) if pd.notna(raw_id) and str(raw_id).lower() != 'nan' else "N/A"
