@@ -14,46 +14,45 @@ st.set_page_config(
     page_icon=LOGO_URL
 )
 
-# --- 2. UI CLEANUP & BRANDING ---
-st.markdown(f"""
+# --- 2. UI CLEANUP ---
+st.markdown("""
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="JA.PREMIER">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#001f3f">
-    
     <style>
-        /* 1. Hide Standard Streamlit Elements */
-        #MainMenu {{ visibility: hidden; }}
-        header {{ visibility: hidden; }}
-        footer {{ visibility: hidden; }}
-
-        /* 2. Hide "Hosted by Streamlit" & Deployment Buttons */
-        .stAppDeployButton {{ display: none !important; }}
-        [data-testid="stToolbar"] {{ display: none !important; }}
-        [data-testid="stDecoration"] {{ display: none !important; }}
-        [data-testid="stStatusWidget"] {{ display: none !important; }}
-        
-        /* 3. Hide Viewer Badges and Bottom Anchors */
-        .viewerBadge_container__1QSob {{ display: none !important; }}
-        .viewerBadge_link__1S137 {{ display: none !important; }}
-        [data-testid="stBottomBlockContainer"] {{ display: none !important; }}
-        
-        /* 4. Layout Polish */
-        .block-container {{
-            padding-top: 2rem;
-            padding-bottom: 1rem;
-        }}
-        
-        /* Custom Scrollbar for Agency Feel */
-        ::-webkit-scrollbar {{
-            width: 5px;
-        }}
-        ::-webkit-scrollbar-thumb {{
-            background: #001f3f; 
-            border-radius: 10px;
-        }}
+        #MainMenu  { display: none !important; }
+        header     { display: none !important; }
+        footer     { display: none !important; }
+        .block-container { padding-top: 2rem; padding-bottom: 1rem; }
     </style>
+    <script>
+    (function() {
+        var KILL = ['hosted by streamlit', 'made with streamlit', 'streamlit.io'];
+        function nuke() {
+            document.querySelectorAll('a, span, div, p, section, footer').forEach(function(el) {
+                var txt = (el.innerText || el.textContent || '').toLowerCase().trim();
+                KILL.forEach(function(kw) {
+                    if (txt && txt.indexOf(kw) !== -1) {
+                        var t = el;
+                        for (var i = 0; i < 5; i++) {
+                            if (t.parentElement && t.parentElement !== document.body) t = t.parentElement;
+                        }
+                        t.style.cssText = 'display:none!important;visibility:hidden!important;height:0!important;min-height:0!important;overflow:hidden!important;';
+                    }
+                });
+            });
+            ['stToolbar','stDecoration','stStatusWidget','stBottomBlockContainer'].forEach(function(id) {
+                var el = document.querySelector('[data-testid="' + id + '"]');
+                if (el) el.style.cssText = 'display:none!important;';
+            });
+        }
+        nuke();
+        new MutationObserver(nuke).observe(document.body, {childList:true, subtree:true});
+        window.addEventListener('load', nuke);
+    })();
+    </script>
 """, unsafe_allow_html=True)
 
 # --- 3. CONSTANTS ---
@@ -199,6 +198,7 @@ if not st.session_state.authenticated:
 # --- 8. LOGGED IN CONTENT ---
 else:
     user = st.session_state.user_data
+
     raw_id = user.get('Security_ID', 'N/A')
     try:
         clean_id = (
