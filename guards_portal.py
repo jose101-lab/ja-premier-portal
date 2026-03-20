@@ -5,18 +5,11 @@ from datetime import datetime
 import os
 import base64
 
-# --- 1. INITIAL CONFIGURATION ---
-st.set_page_config(
-    page_title="JA.PREMIER Guard Portal", 
-    layout="centered", 
-    page_icon="🛡️"
-)
-
 # --- 1.1. HIDDEN APP METADATA ---
-LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
+# We added '?v=2' to force the phone to refresh the icon cache
+LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png?v=2"
 AGENCY_BLUE = "#001f3f"
 
-# This block is now wrapped in a hidden div to prevent it from showing on the UI
 st.markdown(f"""
     <div style="display: none;">
         <head>
@@ -27,8 +20,7 @@ st.markdown(f"""
             <meta name="apple-mobile-web-app-capable" content="yes">
             <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
             <meta name="theme-color" content="{AGENCY_BLUE}">
-            <meta name="msapplication-navbutton-color" content="{AGENCY_BLUE}">
-        </head>
+        </meta>
     </div>
 """, unsafe_allow_html=True)
 
