@@ -12,23 +12,24 @@ st.set_page_config(
     page_icon="🛡️"
 )
 
-# --- 1.1. APP ICON & SPLASH SCREEN METADATA ---
-# These tags control the "Home Screen" icon and the loading splash screen color
+# --- 1.1. HIDDEN APP METADATA ---
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
 AGENCY_BLUE = "#001f3f"
 
+# This block is now wrapped in a hidden div to prevent it from showing on the UI
 st.markdown(f"""
-    <head>
-        <link rel="apple-touch-icon" href="{LOGO_URL}">
-        <link rel="icon" type="image/png" sizes="192x192" href="{LOGO_URL}">
-        <link rel="icon" type="image/png" sizes="32x32" href="{LOGO_URL}">
-        
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-        <meta name="theme-color" content="{AGENCY_BLUE}">
-        <meta name="msapplication-navbutton-color" content="{AGENCY_BLUE}">
-    </head>
+    <div style="display: none;">
+        <head>
+            <link rel="apple-touch-icon" href="{LOGO_URL}">
+            <link rel="icon" type="image/png" sizes="192x192" href="{LOGO_URL}">
+            <link rel="icon" type="image/png" sizes="32x32" href="{LOGO_URL}">
+            <meta name="mobile-web-app-capable" content="yes">
+            <meta name="apple-mobile-web-app-capable" content="yes">
+            <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+            <meta name="theme-color" content="{AGENCY_BLUE}">
+            <meta name="msapplication-navbutton-color" content="{AGENCY_BLUE}">
+        </head>
+    </div>
 """, unsafe_allow_html=True)
 
 ATTENDANCE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
