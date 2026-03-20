@@ -1,4 +1,3 @@
-import patch_favicon          # MUST be first — physically replaces Streamlit's favicon files on disk
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
@@ -16,8 +15,6 @@ st.set_page_config(
 )
 
 # --- 2. UI CLEANUP ---
-# Favicon/icons are handled at the file-system level by patch_favicon.py.
-# This block only hides Streamlit's default chrome.
 st.markdown("""
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,13 +22,33 @@ st.markdown("""
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#001f3f">
     <style>
-        #MainMenu  { visibility: hidden; }
-        footer     { visibility: hidden; }
-        header     { visibility: hidden; }
+        /* Hide all Streamlit branding */
+        #MainMenu                       { visibility: hidden; }
+        header                          { visibility: hidden; }
+        footer                          { visibility: hidden; }
+
+        /* Hide "Hosted by Streamlit" badge / toolbar */
+        .stAppDeployButton              { display: none !important; }
+        [data-testid="stToolbar"]       { display: none !important; }
+        [data-testid="stDecoration"]    { display: none !important; }
+        [data-testid="stStatusWidget"]  { display: none !important; }
+        .viewerBadge_container__1QSob  { display: none !important; }
+        .viewerBadge_link__1S137       { display: none !important; }
+        #MainMenu                       { display: none !important; }
+        .css-1rs6os                     { display: none !important; }
+        .css-17ziqus                    { display: none !important; }
+
+        /* Remove top/bottom padding for cleaner layout */
         .block-container {
             padding-top: 2rem;
-            padding-bottom: 2rem;
+            padding-bottom: 1rem;
         }
+
+        /* Hide the bottom "Made with Streamlit" footer entirely */
+        .st-emotion-cache-1wbqy5l       { display: none !important; }
+        .st-emotion-cache-zq5wmm        { display: none !important; }
+        ._terminalButton_rix23_138      { display: none !important; }
+        [data-testid="stBottomBlockContainer"] { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
