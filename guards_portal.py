@@ -1,17 +1,3 @@
-# ============================================================
-# guard_payslip_tab.py
-# Add this as a new tab inside your guard portal (app.py)
-#
-# 1. Add "💰 Payslip" to your st.tabs() list
-# 2. Add this import at the top of app.py:
-#      from payslip_generator import generate_payslip_pdf
-# 3. Paste this block inside:   with tab_payslip:
-#
-# In Google Sheets, create a sheet called "Payroll" with
-# the same columns as your Excel file. The guard portal
-# will read from it and show each guard ONLY their own slip.
-# ============================================================
-
 import streamlit as st
 import pandas as pd
 from payslip_generator import generate_payslip_pdf
