@@ -6,7 +6,30 @@ import os
 import base64
 
 # --- 1. INITIAL CONFIGURATION ---
-st.set_page_config(page_title="JA.PREMIER Guard Portal", layout="centered", page_icon="🛡️")
+st.set_page_config(
+    page_title="JA.PREMIER Guard Portal", 
+    layout="centered", 
+    page_icon="🛡️"
+)
+
+# --- 1.1. APP ICON & SPLASH SCREEN METADATA ---
+# These tags control the "Home Screen" icon and the loading splash screen color
+LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
+AGENCY_BLUE = "#001f3f"
+
+st.markdown(f"""
+    <head>
+        <link rel="apple-touch-icon" href="{LOGO_URL}">
+        <link rel="icon" type="image/png" sizes="192x192" href="{LOGO_URL}">
+        <link rel="icon" type="image/png" sizes="32x32" href="{LOGO_URL}">
+        
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="theme-color" content="{AGENCY_BLUE}">
+        <meta name="msapplication-navbutton-color" content="{AGENCY_BLUE}">
+    </head>
+""", unsafe_allow_html=True)
 
 ATTENDANCE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
 
@@ -67,35 +90,33 @@ if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data = None
 
-# --- 5. LOGIN SCREEN (ABSOLUTE CENTERING & AGENCY BLUE WELCOME) ---
+# --- 5. LOGIN SCREEN ---
 if not st.session_state.authenticated:
-    # A. CSS for Force Centering and Blue Welcome Text
     st.markdown(
-        """
+        f"""
         <style>
-        .force-center {
+        .force-center {{
             display: flex;
             justify-content: center;
             align-items: center;
             width: 100%;
             margin-bottom: 10px;
-        }
-        .logo-img {
+        }}
+        .logo-img {{
             width: 150px;
             height: auto;
-        }
-        .welcome-text {
+        }}
+        .welcome-text {{
             text-align: center;
-            color: #001f3f; /* Agency Blue */
+            color: {AGENCY_BLUE};
             font-weight: bold;
             margin-bottom: 15px;
             font-size: 1.1rem;
-        }
+        }}
         </style>
         """, unsafe_allow_html=True
     )
 
-    # B. Render Centered Logo using HTML Injection
     if os.path.exists(logo_path):
         binary_logo = get_base64_of_bin_file(logo_path)
         st.markdown(
@@ -103,11 +124,10 @@ if not st.session_state.authenticated:
             unsafe_allow_html=True
         )
     
-    st.markdown("<h1 style='text-align: center; color: #001f3f; margin-top: 0px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; color: {AGENCY_BLUE}; margin-top: 0px;'>JA.PREMIER Login</h1>", unsafe_allow_html=True)
     
     mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
     
-    # C. Dynamic Welcome Message
     if mobile_input:
         try:
             roster_df = get_data("Rosters")
