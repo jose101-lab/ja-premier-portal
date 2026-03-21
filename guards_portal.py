@@ -165,46 +165,58 @@ if not st.session_state.authenticated:
         unsafe_allow_html=True
     )
 
-    mobile_input = st.text_input("Mobile Number", placeholder="09xxxxxxxxx")
+    st.markdown(
+        "<p style='text-align:center;color:#666;font-size:13px;margin-bottom:4px;'>"
+        "Use your name initials (e.g. Juan Dela Cruz = JDC)</p>",
+        unsafe_allow_html=True
+    )
 
-    if mobile_input:
-        try:
-            roster_df = get_data("Rosters")
-            roster_df['Mobile_Number_Clean'] = roster_df['Mobile_Number'].apply(clean_to_digits)
-            search_mob = clean_to_digits(mobile_input)
-            match = roster_df[roster_df['Mobile_Number_Clean'] == search_mob]
-            if not match.empty:
-                guard_name = match.iloc[0]['Name']
-                st.markdown(
-                    f'<p class="welcome-text">Welcome, {guard_name}!</p>',
-                    unsafe_allow_html=True
-                )
-        except:
-            pass
-
+    initials_input = st.text_input("Initials", placeholder="e.g. JDC").strip().upper()
     password_input = st.text_input("Password", type="password")
 
     if st.button("Login", use_container_width=True):
-        with st.spinner("Verifying..."):
-            try:
-                df = get_data("Rosters")
-                df.columns = [str(c).strip() for c in df.columns]
-                df['Mobile_Number_Clean'] = df['Mobile_Number'].apply(clean_to_digits)
-                typed_mobile_clean = clean_to_digits(mobile_input)
-                user_row = df[df['Mobile_Number_Clean'] == typed_mobile_clean]
+        if not initials_input:
+            st.error("Please enter your initials.")
+        else:
+            with st.spinner("Verifying..."):
+                try:
+                    df = get_data("Rosters")
+                    df.columns = [str(c).strip() for c in df.columns]
 
-                if not user_row.empty:
-                    stored_password = str(user_row.iloc[0]['Password']).strip()
-                    if str(password_input).strip() == stored_password:
-                        st.session_state.authenticated = True
-                        st.session_state.user_data     = user_row.iloc[0].to_dict()
-                        st.rerun()
+                    # Auto-generate initials from Name column
+                    def make_initials(name):
+                        parts = str(name).strip().split()
+                        return "".join(p[0].upper() for p in parts if p)
+
+                    df['Initials'] = df['Name'].apply(make_initials)
+
+                    # Handle duplicate initials — append row number suffix
+                    seen = {}
+                    unique_initials = []
+                    for idx, row in df.iterrows():
+                        ini = row['Initials']
+                        if ini not in seen:
+                            seen[ini] = 1
+                            unique_initials.append(ini)
+                        else:
+                            seen[ini] += 1
+                            unique_initials.append(f"{ini}{seen[ini]}")
+                    df['Initials'] = unique_initials
+
+                    user_row = df[df['Initials'] == initials_input]
+
+                    if not user_row.empty:
+                        stored_password = str(user_row.iloc[0]['Password']).strip()
+                        if str(password_input).strip() == stored_password:
+                            st.session_state.authenticated = True
+                            st.session_state.user_data     = user_row.iloc[0].to_dict()
+                            st.rerun()
+                        else:
+                            st.error("Incorrect password.")
                     else:
-                        st.error("Incorrect password.")
-                else:
-                    st.error("Mobile number not found.")
-            except Exception as e:
-                st.error(f"Login System Error: {e}")
+                        st.error("Initials not found. Please contact admin.")
+                except Exception as e:
+                    st.error(f"Login System Error: {e}")
 
 # --- 8. LOGGED IN CONTENT ---
 else:
@@ -223,14 +235,50 @@ else:
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
     if is_temp:
-        st.title("Update Password")
-        new_pass     = st.text_input("New Password", type="password")
-        confirm_pass = st.text_input("Confirm", type="password")
-        if st.button("Update"):
-            if new_pass == confirm_pass and len(new_pass) > 3:
-                st.success("Updated!")
-                st.session_state.authenticated = False
-                st.rerun()
+        st.title("Set Your Password")
+        st.info("Welcome! Please set a new personal password to continue.")
+        new_pass     = st.text_input("New Password", type="password",
+                                      help="Minimum 4 characters")
+        confirm_pass = st.text_input("Confirm Password", type="password")
+
+        if st.button("Save Password", use_container_width=True, type="primary"):
+            if len(new_pass) < 4:
+                st.error("Password must be at least 4 characters.")
+            elif new_pass != confirm_pass:
+                st.error("Passwords do not match.")
+            else:
+                with st.spinner("Saving..."):
+                    try:
+                        creds  = Credentials.from_service_account_info(
+                            svc_info, scopes=SYSTEM_SCOPES
+                        )
+                        client = gspread.authorize(creds)
+                        sheet  = client.open(GS_FILENAME).worksheet("Rosters")
+                        data   = sheet.get_all_records()
+                        headers = sheet.row_values(1)
+
+                        # Find the guard's row by Name
+                        guard_name = str(user.get('Name', '')).strip()
+                        for i, row in enumerate(data):
+                            if str(row.get('Name', '')).strip() == guard_name:
+                                row_num = i + 2  # +1 for header, +1 for 1-indexed
+                                # Update Password column
+                                pwd_col = headers.index('Password') + 1
+                                sheet.update_cell(row_num, pwd_col, new_pass)
+                                # Update Is_Temporary column to FALSE
+                                if 'Is_Temporary' in headers:
+                                    tmp_col = headers.index('Is_Temporary') + 1
+                                    sheet.update_cell(row_num, tmp_col, 'FALSE')
+                                st.success("Password saved! Please log in again.")
+                                st.cache_data.clear()
+                                st.session_state.authenticated = False
+                                st.session_state.user_data     = None
+                                st.rerun()
+                                break
+                        else:
+                            st.error("Could not find your record. Contact admin.")
+                    except Exception as e:
+                        st.error(f"Error saving password: {e}")
     else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
 
