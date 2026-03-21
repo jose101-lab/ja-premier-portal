@@ -183,27 +183,13 @@ if not st.session_state.authenticated:
                     df = get_data("Rosters")
                     df.columns = [str(c).strip() for c in df.columns]
 
-                    # Auto-generate initials from Name column
-                    def make_initials(name):
-                        parts = str(name).strip().split()
-                        return "".join(p[0].upper() for p in parts if p)
+                    # Use Initials column directly from sheet
+                    if 'Initials' not in df.columns:
+                        st.error("Initials column not found in Rosters sheet. Please contact admin.")
+                        st.stop()
 
-                    df['Initials'] = df['Name'].apply(make_initials)
-
-                    # Handle duplicate initials — append row number suffix
-                    seen = {}
-                    unique_initials = []
-                    for idx, row in df.iterrows():
-                        ini = row['Initials']
-                        if ini not in seen:
-                            seen[ini] = 1
-                            unique_initials.append(ini)
-                        else:
-                            seen[ini] += 1
-                            unique_initials.append(f"{ini}{seen[ini]}")
-                    df['Initials'] = unique_initials
-
-                    user_row = df[df['Initials'] == initials_input]
+                    df['Initials_Clean'] = df['Initials'].astype(str).str.strip().str.upper()
+                    user_row = df[df['Initials_Clean'] == initials_input]
 
                     if not user_row.empty:
                         stored_password = str(user_row.iloc[0]['Password']).strip()
