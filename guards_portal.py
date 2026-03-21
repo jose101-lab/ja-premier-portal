@@ -1,12 +1,14 @@
 from payslip_generator import generate_payslip_pdf
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 from datetime import datetime
 import os
 import base64
+import json
 
-# --- 1. INITIAL CONFIGURATION ---
+# --- 1. PAGE CONFIG ---
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
 
 st.set_page_config(
@@ -35,12 +37,26 @@ ATTENDANCE_SCRIPT_URL = (
     "https://script.google.com/macros/s/"
     "AKfycbx5lpKgFFZe_f5D1_hQFeLrfwnQaMLmfJFqYt3s6PAhkyOTnFdT-sHYH-VoEXE6Bk5D/exec"
 )
+GS_FILENAME   = "JA.PREMIER ATTENDANCE"
+SYSTEM_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
 base_path = os.path.dirname(os.path.abspath(__file__))
 logo_path = os.path.join(base_path, "agency_logo.png")
 
-# --- 4. CONNECT TO GOOGLE SHEETS ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- 4. LOAD CREDENTIALS ---
+try:
+    svc_info = dict(st.secrets["gcp_service_account"])
+except Exception:
+    try:
+        creds_path = os.path.join(base_path, "credentials.json")
+        with open(creds_path) as f:
+            svc_info = json.load(f)
+    except Exception as e:
+        st.error(f"Could not load credentials: {e}")
+        st.stop()
 
 # --- 5. UTILITY FUNCTIONS ---
 def get_base64_of_bin_file(bin_file):
@@ -55,8 +71,28 @@ def clean_to_digits(value):
         return "0" + digits
     return digits
 
-def get_data(sheet_name):
-    return conn.read(worksheet=sheet_name, ttl=0)
+@st.cache_data(ttl=60)
+def get_data(sheet_name, _key=None):
+    try:
+        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
+        client = gspread.authorize(creds)
+        ws     = client.open(GS_FILENAME).worksheet(sheet_name)
+        return pd.DataFrame(ws.get_all_records())
+    except Exception as e:
+        st.error(f"Error reading {sheet_name}: {e}")
+        return pd.DataFrame()
+
+def update_sheet(sheet_name, df):
+    try:
+        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
+        client = gspread.authorize(creds)
+        ws     = client.open(GS_FILENAME).worksheet(sheet_name)
+        ws.clear()
+        ws.update([df.columns.tolist()] + df.fillna("").values.tolist())
+        return True
+    except Exception as e:
+        st.error(f"Update error: {e}")
+        return False
 
 def style_status(val):
     val_upper = str(val).upper().strip()
@@ -72,17 +108,17 @@ def submit_request(req_type, details):
     with st.spinner("Submitting request..."):
         clean_mob = clean_to_digits(st.session_state.user_data['Mobile_Number'])
         new_req = pd.DataFrame([{
-            "Date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Date":          datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "Mobile_Number": clean_mob,
-            "Name": st.session_state.user_data['Name'],
-            "Type": req_type,
-            "Details": details,
-            "Status": "PENDING"
+            "Name":          st.session_state.user_data['Name'],
+            "Type":          req_type,
+            "Details":       details,
+            "Status":        "PENDING"
         }])
         try:
             existing_reqs = get_data("Request")
-            updated_reqs = pd.concat([existing_reqs, new_req], ignore_index=True)
-            conn.update(worksheet="Request", data=updated_reqs)
+            updated_reqs  = pd.concat([existing_reqs, new_req], ignore_index=True)
+            update_sheet("Request", updated_reqs)
             st.success("Request sent!")
             st.cache_data.clear()
         except Exception as e:
@@ -91,26 +127,20 @@ def submit_request(req_type, details):
 # --- 6. SESSION MANAGEMENT ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
-    st.session_state.user_data = None
+    st.session_state.user_data     = None
 
 # --- 7. LOGIN SCREEN ---
 if not st.session_state.authenticated:
     st.markdown("""
         <style>
         .force-center {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            margin-bottom: 10px;
+            display: flex; justify-content: center;
+            align-items: center; width: 100%; margin-bottom: 10px;
         }
         .logo-img { width: 150px; height: auto; }
         .welcome-text {
-            text-align: center;
-            color: #001f3f;
-            font-weight: bold;
-            margin-bottom: 15px;
-            font-size: 1.1rem;
+            text-align: center; color: #001f3f;
+            font-weight: bold; margin-bottom: 15px; font-size: 1.1rem;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -125,7 +155,7 @@ if not st.session_state.authenticated:
         )
 
     st.markdown(
-        "<h1 style='text-align: center; color: #001f3f; margin-top: 0px;'>JA.PREMIER Login</h1>",
+        "<h1 style='text-align:center;color:#001f3f;margin-top:0px;'>JA.PREMIER Login</h1>",
         unsafe_allow_html=True
     )
 
@@ -161,7 +191,7 @@ if not st.session_state.authenticated:
                     stored_password = str(user_row.iloc[0]['Password']).strip()
                     if str(password_input).strip() == stored_password:
                         st.session_state.authenticated = True
-                        st.session_state.user_data = user_row.iloc[0].to_dict()
+                        st.session_state.user_data     = user_row.iloc[0].to_dict()
                         st.rerun()
                     else:
                         st.error("Incorrect password.")
@@ -204,12 +234,13 @@ else:
             guard_assignments  = guards_tab_df[
                 guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name
             ]
-
             if not guard_assignments.empty:
                 guard_assignments['Effective Date'] = pd.to_datetime(
                     guard_assignments['Effective Date'], dayfirst=True, errors='coerce'
                 )
-                latest_assignment = guard_assignments.sort_values('Effective Date', ascending=False).iloc[0]
+                latest_assignment = guard_assignments.sort_values(
+                    'Effective Date', ascending=False
+                ).iloc[0]
                 assigned_site = str(latest_assignment['Site']).strip()
             else:
                 assigned_site = "Floating / Unassigned"
@@ -224,7 +255,6 @@ else:
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- 4 TABS including new Payslip tab ---
         tab1, tab2, tab3, tab4 = st.tabs(["Attendance", "Requests", "Profile", "Payslip"])
 
         # ── TAB 1: ATTENDANCE ────────────────────────────────────────────────
@@ -241,11 +271,9 @@ else:
                 if not site_orders.empty:
                     possible_cols = ['Orders', 'Order_Content', 'Instructions']
                     found_col = next((c for c in possible_cols if c in site_orders.columns), None)
-
                     if found_col:
                         specific_order = site_orders.iloc[0][found_col]
                         st.warning(f"**Instructions:**\n\n{specific_order}")
-
                         if st.button("CONFIRM READ", use_container_width=True):
                             new_log = pd.DataFrame([{
                                 "Timestamp":     datetime.now().strftime("%Y-%m-%d %I:%M %p"),
@@ -257,7 +285,7 @@ else:
                             try:
                                 existing_logs = get_data("PostOrderLogs")
                                 updated_logs  = pd.concat([existing_logs, new_log], ignore_index=True)
-                                conn.update(worksheet="PostOrderLogs", data=updated_logs)
+                                update_sheet("PostOrderLogs", updated_logs)
                                 st.success("Sent to Command Center!")
                             except:
                                 st.error("Log error.")
@@ -286,10 +314,11 @@ else:
                 all_reqs = get_data("Request")
                 user_mob = clean_to_digits(user['Mobile_Number'])
                 all_reqs['Mobile_Number_Clean'] = all_reqs['Mobile_Number'].apply(clean_to_digits)
-                my_reqs = all_reqs[all_reqs['Mobile_Number_Clean'] == user_mob].copy()
-
+                my_reqs  = all_reqs[all_reqs['Mobile_Number_Clean'] == user_mob].copy()
                 if not my_reqs.empty:
-                    display_reqs   = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values('Date', ascending=False)
+                    display_reqs   = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values(
+                        'Date', ascending=False
+                    )
                     styled_display = display_reqs.style.map(style_status, subset=['Status'])
                     st.dataframe(styled_display, hide_index=True, use_container_width=True)
                 else:
@@ -308,13 +337,11 @@ else:
         with tab4:
             st.subheader("My Payslip")
             try:
-                # Check if admin has published payslips
                 ctrl_df      = get_data("PayrollControl")
                 is_published = (
                     not ctrl_df.empty and
                     str(ctrl_df.iloc[0].get("Status", "")).upper() == "PUBLISHED"
                 )
-
                 if not is_published:
                     st.markdown(
                         """<div style="background:#f8f9fa;border-left:6px solid #001f3f;"""
@@ -329,7 +356,6 @@ else:
                     )
                 else:
                     payroll_df = get_data("Payroll")
-
                     if payroll_df.empty:
                         st.info("No payroll data available yet.")
                     else:
@@ -358,7 +384,7 @@ else:
                                 try:    row_data[col] = float(str(row_data.get(col, 0) or 0).replace(",", ""))
                                 except: row_data[col] = 0.0
 
-                            net = row_data["NET PAY"]
+                            net    = row_data["NET PAY"]
                             period = row_data.get("Date Covered", "")
                             st.markdown(
                                 f"""<div style="background:#001f3f;color:white;padding:16px;"""
@@ -372,25 +398,24 @@ else:
                             c1, c2 = st.columns(2)
                             with c1:
                                 st.markdown("**Earnings**")
-                                st.write(f"Basic Salary: ₱{row_data['Basic Salary']:,.2f}")
-                                st.write(f"Holiday: ₱{row_data['Holiday']:,.2f}")
-                                st.write(f"Overtime: ₱{row_data['Overtime pay']:,.2f}")
-                                st.write(f"Night Diff: ₱{row_data['Night Differential']:,.2f}")
-                                st.write(f"5-Day Incentive: ₱{row_data['5 days Incentives']:,.2f}")
-                                st.write(f"Uniform Allow.: ₱{row_data['Uniform Allowance']:,.2f}")
-                                st.markdown(f"**Gross Pay: ₱{row_data['Gross Pay']:,.2f}**")
+                                st.write(f"Basic Salary: \u20b1{row_data['Basic Salary']:,.2f}")
+                                st.write(f"Holiday: \u20b1{row_data['Holiday']:,.2f}")
+                                st.write(f"Overtime: \u20b1{row_data['Overtime pay']:,.2f}")
+                                st.write(f"Night Diff: \u20b1{row_data['Night Differential']:,.2f}")
+                                st.write(f"5-Day Incentive: \u20b1{row_data['5 days Incentives']:,.2f}")
+                                st.write(f"Uniform Allow.: \u20b1{row_data['Uniform Allowance']:,.2f}")
+                                st.markdown(f"**Gross Pay: \u20b1{row_data['Gross Pay']:,.2f}**")
                             with c2:
                                 st.markdown("**Deductions**")
-                                st.write(f"SSS: ₱{row_data['SSS']:,.2f}")
-                                st.write(f"Pag-Ibig: ₱{row_data['Pag-Ibig']:,.2f}")
-                                st.write(f"PhilHealth: ₱{row_data['PhilHealth']:,.2f}")
-                                st.write(f"Loans: ₱{row_data['Loans']:,.2f}")
-                                st.write(f"FA Bonds: ₱{row_data['FA Bonds']:,.2f}")
-                                st.write(f"Cash Advance: ₱{row_data['Cash Advance']:,.2f}")
-                                st.markdown(f"**Total Deduction: ₱{row_data['Total Deduction']:,.2f}**")
+                                st.write(f"SSS: \u20b1{row_data['SSS']:,.2f}")
+                                st.write(f"Pag-Ibig: \u20b1{row_data['Pag-Ibig']:,.2f}")
+                                st.write(f"PhilHealth: \u20b1{row_data['PhilHealth']:,.2f}")
+                                st.write(f"Loans: \u20b1{row_data['Loans']:,.2f}")
+                                st.write(f"FA Bonds: \u20b1{row_data['FA Bonds']:,.2f}")
+                                st.write(f"Cash Advance: \u20b1{row_data['Cash Advance']:,.2f}")
+                                st.markdown(f"**Total Deduction: \u20b1{row_data['Total Deduction']:,.2f}**")
 
                             st.divider()
-
                             pdf_bytes = generate_payslip_pdf(row_data)
                             filename  = (
                                 f"Payslip_{str(user['Name']).replace(' ', '_')}_"
@@ -404,7 +429,6 @@ else:
                                 use_container_width=True,
                                 type="primary"
                             )
-
             except Exception as e:
                 st.error(f"Could not load payslip: {e}")
 
