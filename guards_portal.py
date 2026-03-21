@@ -112,7 +112,8 @@ def style_status(val):
 
 def submit_request(req_type, details):
     with st.spinner("Submitting request..."):
-        clean_mob = clean_to_digits(st.session_state.user_data['Mobile_Number'])
+        mobile = st.session_state.user_data.get('Mobile_Number', '')
+        clean_mob = clean_to_digits(mobile) if mobile and str(mobile) not in ['', 'nan', 'None'] else ''
         new_req = pd.DataFrame([{
             "Date":          now_pst().strftime("%Y-%m-%d %H:%M:%S"),
             "Mobile_Number": clean_mob,
@@ -352,9 +353,15 @@ else:
             st.subheader("History")
             try:
                 all_reqs = get_data("Request")
-                user_mob = clean_to_digits(user['Mobile_Number'])
-                all_reqs['Mobile_Number_Clean'] = all_reqs['Mobile_Number'].apply(clean_to_digits)
-                my_reqs  = all_reqs[all_reqs['Mobile_Number_Clean'] == user_mob].copy()
+                # Match by Name since mobile number may not be available
+                guard_name_req = str(user.get('Name', '')).strip()
+                if 'Mobile_Number' in all_reqs.columns and user.get('Mobile_Number'):
+                    user_mob = clean_to_digits(user['Mobile_Number'])
+                    all_reqs['Mobile_Number_Clean'] = all_reqs['Mobile_Number'].apply(clean_to_digits)
+                    my_reqs = all_reqs[all_reqs['Mobile_Number_Clean'] == user_mob].copy()
+                else:
+                    all_reqs['Name_Clean'] = all_reqs['Name'].astype(str).str.strip()
+                    my_reqs = all_reqs[all_reqs['Name_Clean'] == guard_name_req].copy()
                 if not my_reqs.empty:
                     display_reqs   = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values(
                         'Date', ascending=False
@@ -370,7 +377,12 @@ else:
         with tab3:
             st.subheader("My Info")
             st.write(f"**Name:** {user['Name']}")
-            st.write(f"**Mobile:** {clean_to_digits(user['Mobile_Number'])}")
+            mobile = user.get('Mobile_Number', '')
+            if mobile and str(mobile) not in ['', 'nan', 'None']:
+                st.write(f"**Mobile:** {clean_to_digits(mobile)}")
+            initials = user.get('Initials', '')
+            if initials:
+                st.write(f"**Initials:** {str(initials).strip().upper()}")
             st.write(f"**Security ID:** {clean_id}")
 
         # ── TAB 4: PAYSLIP ───────────────────────────────────────────────────
