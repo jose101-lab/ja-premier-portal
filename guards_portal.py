@@ -4,9 +4,15 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 import base64
 import json
+
+# Philippine Standard Time
+PST = ZoneInfo("Asia/Manila")
+def now_pst():
+    return datetime.now(PST)
 
 # --- 1. PAGE CONFIG ---
 LOGO_URL = "https://jose101-lab.github.io/ja-premier-portal/agency_logo.png"
@@ -108,7 +114,7 @@ def submit_request(req_type, details):
     with st.spinner("Submitting request..."):
         clean_mob = clean_to_digits(st.session_state.user_data['Mobile_Number'])
         new_req = pd.DataFrame([{
-            "Date":          datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Date":          now_pst().strftime("%Y-%m-%d %H:%M:%S"),
             "Mobile_Number": clean_mob,
             "Name":          st.session_state.user_data['Name'],
             "Type":          req_type,
@@ -276,7 +282,7 @@ else:
                         st.warning(f"**Instructions:**\n\n{specific_order}")
                         if st.button("CONFIRM READ", use_container_width=True):
                             new_log = pd.DataFrame([{
-                                "Timestamp":     datetime.now().strftime("%Y-%m-%d %I:%M %p"),
+                                "Timestamp":     now_pst().strftime("%Y-%m-%d %I:%M %p"),
                                 "Guard_Name":    user['Name'],
                                 "Site":          assigned_site,
                                 "Order_Content": specific_order,
