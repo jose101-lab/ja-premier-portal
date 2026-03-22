@@ -486,83 +486,120 @@ else:
 
         # ── TAB 5: BALANCE ───────────────────────────────────────────────────
         with tab5:
-            st.subheader("My Cash Advance Balance")
+            st.subheader("My Balance")
             try:
-                ca_df = get_data("Cash_Advance")
+                guard_full_name = str(user["Name"]).strip().upper()
 
-                if ca_df.empty:
-                    st.info("No cash advance records found.")
-                else:
-                    guard_full_name = str(user["Name"]).strip().upper()
-
-                    # Exact match — names in Cash_Advance must match Rosters exactly
-                    ca_df["_name_upper"] = ca_df["Security Guard"].astype(str).str.strip().str.upper()
-                    my_ca = ca_df[ca_df["_name_upper"] == guard_full_name].copy()
-
-                    # Filter only UNPAID (Remarks is blank or not "PAID")
+                # ── Load Cash Advance ─────────────────────────────────────────
+                ca_df    = get_data("Cash_Advance")
+                unpaid_ca = pd.DataFrame()
+                if not ca_df.empty:
+                    ca_df["_n"] = ca_df["Security Guard"].astype(str).str.strip().str.upper()
+                    my_ca = ca_df[ca_df["_n"] == guard_full_name].copy()
                     my_ca["_paid"] = my_ca["Remarks"].astype(str).str.strip().str.upper()
-                    unpaid = my_ca[my_ca["_paid"] != "PAID"].copy()
+                    unpaid_ca = my_ca[my_ca["_paid"] != "PAID"].copy()
+                    unpaid_ca["_amount"] = pd.to_numeric(
+                        unpaid_ca["Amount"].astype(str).str.replace(",","").str.strip(),
+                        errors="coerce"
+                    ).fillna(0)
+                    unpaid_ca["_date"] = pd.to_datetime(
+                        unpaid_ca["Date of CA"], errors="coerce"
+                    ).dt.strftime("%m/%d/%Y").fillna("")
+                    unpaid_ca["_remarks"] = unpaid_ca["Remarks"].astype(str).str.strip()
+                    unpaid_ca.loc[unpaid_ca["_remarks"].str.upper().isin(["NAN","PAID",""]), "_remarks"] = "Cash Advance"
 
-                    if unpaid.empty:
-                        # No outstanding balance — show clear message
-                        st.markdown("""
-                            <div style="background:#d4edda;border-left:6px solid #28a745;
-                                        padding:20px;border-radius:10px;text-align:center;
-                                        margin-top:16px;">
-                                <div style="font-size:36px;margin-bottom:8px;">✅</div>
-                                <div style="font-size:16px;font-weight:bold;color:#155724;">
-                                    No outstanding cash advance</div>
-                                <div style="font-size:13px;color:#155724;margin-top:4px;">
-                                    You have no unpaid balance on record.</div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        # Calculate total outstanding
-                        unpaid["_amount"] = pd.to_numeric(
-                            unpaid["Amount"].astype(str).str.replace(",", "").str.strip(),
-                            errors="coerce"
-                        ).fillna(0)
-                        total_balance = unpaid["_amount"].sum()
+                # ── Load Guards Payable ───────────────────────────────────────
+                gp_df     = get_data("Guards_Payable")
+                unpaid_gp = pd.DataFrame()
+                if not gp_df.empty:
+                    gp_df["_n"] = gp_df["Security Guard"].astype(str).str.strip().str.upper()
+                    my_gp = gp_df[gp_df["_n"] == guard_full_name].copy()
+                    my_gp["_paid"] = my_gp["Status"].astype(str).str.strip().str.upper()
+                    unpaid_gp = my_gp[my_gp["_paid"] != "PAID"].copy()
+                    unpaid_gp["_amount"] = pd.to_numeric(
+                        unpaid_gp["Amount"].astype(str).str.replace(",","").str.strip(),
+                        errors="coerce"
+                    ).fillna(0)
+                    unpaid_gp["_date"] = pd.to_datetime(
+                        unpaid_gp["Date"], errors="coerce"
+                    ).dt.strftime("%m/%d/%Y").fillna("")
+                    unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
 
-                        # Total balance banner
-                        st.markdown(f"""
-                            <div style="background:#dc3545;color:white;padding:16px;
-                                        border-radius:12px;text-align:center;margin-bottom:16px;">
-                                <div style="font-size:12px;opacity:0.8;letter-spacing:1px;">
-                                    TOTAL OUTSTANDING CASH ADVANCE</div>
-                                <div style="font-size:32px;font-weight:800;">
-                                    &#8369; {total_balance:,.2f}</div>
-                            </div>
-                        """, unsafe_allow_html=True)
+                total_ca = unpaid_ca["_amount"].sum() if not unpaid_ca.empty else 0
+                total_gp = unpaid_gp["_amount"].sum() if not unpaid_gp.empty else 0
+                grand_total = total_ca + total_gp
 
-                        # Show each unpaid record
-                        st.markdown("**Unpaid Records:**")
-                        for _, row in unpaid.iterrows():
-                            amt = row["_amount"]
-                            date_ca = str(row.get("Date of CA", "")).strip()
-                            remarks = str(row.get("Remarks", "")).strip()
-                            remarks_display = remarks if remarks and remarks.upper() != "NAN" else "Unpaid"
+                if grand_total == 0:
+                    # All clear
+                    st.markdown(
+                        '<div style="background:#d4edda;border-left:6px solid #28a745;'
+                        'padding:20px;border-radius:10px;text-align:center;margin-top:16px;">'
+                        '<div style="font-size:36px;margin-bottom:8px;">&#10003;</div>'
+                        '<div style="font-size:16px;font-weight:bold;color:#155724;">'
+                        'No outstanding balance</div>'
+                        '<div style="font-size:13px;color:#155724;margin-top:4px;">'
+                        'You have no unpaid cash advance or payables on record.</div>'
+                        '</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    # Grand total banner
+                    st.markdown(
+                        f'<div style="background:#001f3f;color:white;padding:16px;'
+                        f'border-radius:12px;text-align:center;margin-bottom:16px;">'
+                        f'<div style="font-size:11px;opacity:0.7;letter-spacing:1px;">TOTAL OUTSTANDING BALANCE</div>'
+                        f'<div style="font-size:32px;font-weight:800;">&#8369; {grand_total:,.2f}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
 
-                            st.markdown(f"""
-                                <div style="background:#fff3cd;border-left:5px solid #ffc107;
-                                            padding:12px 16px;border-radius:8px;margin-bottom:8px;">
-                                    <div style="display:flex;justify-content:space-between;
-                                                align-items:center;">
-                                        <div>
-                                            <div style="font-weight:700;color:#856404;font-size:14px;">
-                                                &#8369; {amt:,.2f}</div>
-                                            <div style="font-size:12px;color:#856404;margin-top:2px;">
-                                                Date: {date_ca}</div>
-                                        </div>
-                                        <div style="background:#ffc107;color:#856404;
-                                                    font-size:11px;font-weight:700;
-                                                    padding:3px 10px;border-radius:20px;">
-                                            {remarks_display}</div>
-                                    </div>
-                                </div>
-                            """, unsafe_allow_html=True)
+                    # ── Cash Advance section ──────────────────────────────────
+                    if not unpaid_ca.empty:
+                        st.markdown(
+                            f'<div style="background:#dc3545;color:white;padding:8px 16px;'
+                            f'border-radius:8px 8px 0 0;font-weight:700;font-size:13px;">'
+                            f'Cash Advance &nbsp;&nbsp; &#8369; {total_ca:,.2f}</div>',
+                            unsafe_allow_html=True
+                        )
+                        for _, r in unpaid_ca.iterrows():
+                            st.markdown(
+                                f'<div style="background:#fff3cd;border-left:5px solid #ffc107;'
+                                f'padding:10px 16px;margin-bottom:4px;">'
+                                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                                f'<div><div style="font-weight:700;color:#856404;">&#8369; {r["_amount"]:,.2f}</div>'
+                                f'<div style="font-size:12px;color:#856404;">{r["_remarks"]} &bull; {r["_date"]}</div>'
+                                f'</div>'
+                                f'<div style="background:#ffc107;color:#856404;font-size:11px;'
+                                f'font-weight:700;padding:2px 10px;border-radius:20px;">Unpaid</div>'
+                                f'</div></div>',
+                                unsafe_allow_html=True
+                            )
+                        st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
 
-                        st.caption("Contact admin if you have questions about your balance.")
+                    # ── Others / Guards Payable section ──────────────────────
+                    if not unpaid_gp.empty:
+                        st.markdown(
+                            f'<div style="background:#6c757d;color:white;padding:8px 16px;'
+                            f'border-radius:8px 8px 0 0;font-weight:700;font-size:13px;">'
+                            f'Others &nbsp;&nbsp; &#8369; {total_gp:,.2f}</div>',
+                            unsafe_allow_html=True
+                        )
+                        for _, r in unpaid_gp.iterrows():
+                            st.markdown(
+                                f'<div style="background:#e2e3e5;border-left:5px solid #6c757d;'
+                                f'padding:10px 16px;margin-bottom:4px;">'
+                                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                                f'<div><div style="font-weight:700;color:#383d41;">&#8369; {r["_amount"]:,.2f}</div>'
+                                f'<div style="font-size:12px;color:#383d41;">{r["_remarks"]} &bull; {r["_date"]}</div>'
+                                f'</div>'
+                                f'<div style="background:#6c757d;color:white;font-size:11px;'
+                                f'font-weight:700;padding:2px 10px;border-radius:20px;">Unpaid</div>'
+                                f'</div></div>',
+                                unsafe_allow_html=True
+                            )
+                        st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
+
+                    st.caption("Contact admin if you have questions about your balance.")
 
             except Exception as e:
                 st.error(f"Could not load balance: {e}")
