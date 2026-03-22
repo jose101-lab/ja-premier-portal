@@ -296,7 +296,7 @@ else:
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        tab1, tab2, tab3, tab4 = st.tabs(["Attendance", "Requests", "Profile", "Payslip"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["Attendance", "Requests", "Profile", "Payslip", "Balance"])
 
         # ── TAB 1: ATTENDANCE ────────────────────────────────────────────────
         with tab1:
@@ -483,5 +483,88 @@ else:
                             )
             except Exception as e:
                 st.error(f"Could not load payslip: {e}")
+
+        # ── TAB 5: BALANCE ───────────────────────────────────────────────────
+        with tab5:
+            st.subheader("My Cash Advance Balance")
+            try:
+                ca_df = get_data("Cash_Advance")
+
+                if ca_df.empty:
+                    st.info("No cash advance records found.")
+                else:
+                    guard_full_name = str(user["Name"]).strip().upper()
+
+                    # Exact match — names in Cash_Advance must match Rosters exactly
+                    ca_df["_name_upper"] = ca_df["Security Guard"].astype(str).str.strip().str.upper()
+                    my_ca = ca_df[ca_df["_name_upper"] == guard_full_name].copy()
+
+                    # Filter only UNPAID (Remarks is blank or not "PAID")
+                    my_ca["_paid"] = my_ca["Remarks"].astype(str).str.strip().str.upper()
+                    unpaid = my_ca[my_ca["_paid"] != "PAID"].copy()
+
+                    if unpaid.empty:
+                        # No outstanding balance — show clear message
+                        st.markdown("""
+                            <div style="background:#d4edda;border-left:6px solid #28a745;
+                                        padding:20px;border-radius:10px;text-align:center;
+                                        margin-top:16px;">
+                                <div style="font-size:36px;margin-bottom:8px;">✅</div>
+                                <div style="font-size:16px;font-weight:bold;color:#155724;">
+                                    No outstanding cash advance</div>
+                                <div style="font-size:13px;color:#155724;margin-top:4px;">
+                                    You have no unpaid balance on record.</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # Calculate total outstanding
+                        unpaid["_amount"] = pd.to_numeric(
+                            unpaid["Amount"].astype(str).str.replace(",", "").str.strip(),
+                            errors="coerce"
+                        ).fillna(0)
+                        total_balance = unpaid["_amount"].sum()
+
+                        # Total balance banner
+                        st.markdown(f"""
+                            <div style="background:#dc3545;color:white;padding:16px;
+                                        border-radius:12px;text-align:center;margin-bottom:16px;">
+                                <div style="font-size:12px;opacity:0.8;letter-spacing:1px;">
+                                    TOTAL OUTSTANDING CASH ADVANCE</div>
+                                <div style="font-size:32px;font-weight:800;">
+                                    &#8369; {total_balance:,.2f}</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+
+                        # Show each unpaid record
+                        st.markdown("**Unpaid Records:**")
+                        for _, row in unpaid.iterrows():
+                            amt = row["_amount"]
+                            date_ca = str(row.get("Date of CA", "")).strip()
+                            remarks = str(row.get("Remarks", "")).strip()
+                            remarks_display = remarks if remarks and remarks.upper() != "NAN" else "Unpaid"
+
+                            st.markdown(f"""
+                                <div style="background:#fff3cd;border-left:5px solid #ffc107;
+                                            padding:12px 16px;border-radius:8px;margin-bottom:8px;">
+                                    <div style="display:flex;justify-content:space-between;
+                                                align-items:center;">
+                                        <div>
+                                            <div style="font-weight:700;color:#856404;font-size:14px;">
+                                                &#8369; {amt:,.2f}</div>
+                                            <div style="font-size:12px;color:#856404;margin-top:2px;">
+                                                Date: {date_ca}</div>
+                                        </div>
+                                        <div style="background:#ffc107;color:#856404;
+                                                    font-size:11px;font-weight:700;
+                                                    padding:3px 10px;border-radius:20px;">
+                                            {remarks_display}</div>
+                                    </div>
+                                </div>
+                            """, unsafe_allow_html=True)
+
+                        st.caption("Contact admin if you have questions about your balance.")
+
+            except Exception as e:
+                st.error(f"Could not load balance: {e}")
 
 st.caption("JA.PREMIER SECURITY AGENCY | 2026")
