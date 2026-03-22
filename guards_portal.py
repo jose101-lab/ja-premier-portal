@@ -88,6 +88,16 @@ def get_data(sheet_name, _key=None):
         st.error(f"Error reading {sheet_name}: {e}")
         return pd.DataFrame()
 
+def normalize_name(name):
+    """Normalize guard name — handles SG prefix and LASTNAME, Firstname format."""
+    import re
+    n = str(name).strip().upper()
+    n = re.sub(r'^SG\s+', '', n)
+    if ',' in n:
+        parts = n.split(',', 1)
+        n = f"{parts[1].strip()} {parts[0].strip()}"
+    return ' '.join(n.split())
+
 def update_sheet(sheet_name, df):
     try:
         creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
@@ -512,8 +522,8 @@ else:
                 gp_df     = get_data("Guards_Payable")
                 unpaid_gp = pd.DataFrame()
                 if not gp_df.empty:
-                    gp_df["_n"] = gp_df["Security Guard"].astype(str).str.strip().str.upper()
-                    my_gp = gp_df[gp_df["_n"] == guard_full_name].copy()
+                    gp_df["_n"] = gp_df["Security Guard"].apply(normalize_name)
+                    my_gp = gp_df[gp_df["_n"] == normalize_name(user["Name"])].copy()
                     my_gp["_paid"] = my_gp["Status"].astype(str).str.strip().str.upper()
                     unpaid_gp = my_gp[my_gp["_paid"] != "PAID"].copy()
                     unpaid_gp["_amount"] = pd.to_numeric(
