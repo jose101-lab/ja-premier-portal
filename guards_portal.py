@@ -194,7 +194,6 @@ if not st.session_state.authenticated:
                     df = get_data("Rosters")
                     df.columns = [str(c).strip() for c in df.columns]
 
-                    # Use Initials column directly from sheet
                     if 'Initials' not in df.columns:
                         st.error("Initials column not found in Rosters sheet. Please contact admin.")
                         st.stop()
@@ -254,15 +253,12 @@ else:
                         data   = sheet.get_all_records()
                         headers = sheet.row_values(1)
 
-                        # Find the guard's row by Name
                         guard_name = str(user.get('Name', '')).strip()
                         for i, row in enumerate(data):
                             if str(row.get('Name', '')).strip() == guard_name:
-                                row_num = i + 2  # +1 for header, +1 for 1-indexed
-                                # Update Password column
+                                row_num = i + 2
                                 pwd_col = headers.index('Password') + 1
                                 sheet.update_cell(row_num, pwd_col, new_pass)
-                                # Update Is_Temporary column to FALSE
                                 if 'Is_Temporary' in headers:
                                     tmp_col = headers.index('Is_Temporary') + 1
                                     sheet.update_cell(row_num, tmp_col, 'FALSE')
@@ -296,11 +292,41 @@ else:
             else:
                 assigned_site = "Floating / Unassigned"
 
+        # ── GREETING HEADER (Mobile-Optimized, Centered, Professional) ──────
         col_title, col_refresh = st.columns([5, 1])
         with col_title:
-            st.title(f"Hello, {user['Name']}")
+            st.markdown(
+                f"""
+                <div style='padding-top:6px;'>
+                    <div style='
+                        font-size: clamp(10px, 3vw, 13px);
+                        color: #7f8c8d;
+                        font-weight: 600;
+                        letter-spacing: 2px;
+                        text-transform: uppercase;
+                        text-align: center;
+                        margin-bottom: 2px;
+                    '>Good day,</div>
+                    <div style='
+                        font-size: clamp(15px, 4.5vw, 24px);
+                        font-weight: 900;
+                        color: #ffffff;
+                        background: linear-gradient(135deg, #001f3f, #003f7f);
+                        padding: 6px 14px;
+                        border-radius: 8px;
+                        text-align: center;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        letter-spacing: 0.5px;
+                        box-shadow: 0 2px 8px rgba(0,31,63,0.18);
+                    '>{user['Name']}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         with col_refresh:
-            st.markdown("<div style='padding-top:18px;'>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-top:22px;'>", unsafe_allow_html=True)
             if st.button("↻", help="Refresh page"):
                 st.cache_data.clear()
                 st.rerun()
@@ -363,7 +389,6 @@ else:
             st.subheader("History")
             try:
                 all_reqs = get_data("Request")
-                # Match by Name since mobile number may not be available
                 guard_name_req = str(user.get('Name', '')).strip()
                 if 'Mobile_Number' in all_reqs.columns and user.get('Mobile_Number'):
                     user_mob = clean_to_digits(user['Mobile_Number'])
@@ -535,12 +560,11 @@ else:
                     ).dt.strftime("%m/%d/%Y").fillna("")
                     unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
 
-                total_ca = unpaid_ca["_amount"].sum() if not unpaid_ca.empty else 0
-                total_gp = unpaid_gp["_amount"].sum() if not unpaid_gp.empty else 0
+                total_ca    = unpaid_ca["_amount"].sum() if not unpaid_ca.empty else 0
+                total_gp    = unpaid_gp["_amount"].sum() if not unpaid_gp.empty else 0
                 grand_total = total_ca + total_gp
 
                 if grand_total == 0:
-                    # All clear
                     st.markdown(
                         '<div style="background:#d4edda;border-left:6px solid #28a745;'
                         'padding:20px;border-radius:10px;text-align:center;margin-top:16px;">'
@@ -553,7 +577,6 @@ else:
                         unsafe_allow_html=True
                     )
                 else:
-                    # Grand total banner
                     st.markdown(
                         f'<div style="background:#001f3f;color:white;padding:16px;'
                         f'border-radius:12px;text-align:center;margin-bottom:16px;">'
