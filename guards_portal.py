@@ -1,4 +1,5 @@
 from payslip_generator import generate_payslip_pdf
+from incident_pdf import generate_incident_pdf
 import streamlit as st
 import pandas as pd
 import gspread
@@ -89,7 +90,6 @@ def get_data(sheet_name, _key=None):
         return pd.DataFrame()
 
 def normalize_name(name):
-    """Normalize guard name — handles SG prefix and LASTNAME, Firstname format."""
     import re
     n = str(name).strip().upper()
     n = re.sub(r'^SG\s+', '', n)
@@ -108,6 +108,23 @@ def update_sheet(sheet_name, df):
         return True
     except Exception as e:
         st.error(f"Update error: {e}")
+        return False
+
+def append_to_sheet(sheet_name, row_dict):
+    """Append a single row; auto-creates sheet with headers if missing."""
+    try:
+        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
+        client = gspread.authorize(creds)
+        wb     = client.open(GS_FILENAME)
+        try:
+            ws = wb.worksheet(sheet_name)
+        except Exception:
+            ws = wb.add_worksheet(title=sheet_name, rows="1000", cols="20")
+            ws.append_row(list(row_dict.keys()))
+        ws.append_row(list(row_dict.values()))
+        return True
+    except Exception as e:
+        st.error(f"Append error: {e}")
         return False
 
 def style_status(val):
@@ -175,7 +192,6 @@ if not st.session_state.authenticated:
         "<h1 style='text-align:center;color:#001f3f;margin-top:0px;'>JA.PREMIER Login</h1>",
         unsafe_allow_html=True
     )
-
     st.markdown(
         "<p style='text-align:center;color:#666;font-size:13px;margin-bottom:4px;'>"
         "Use your name initials (e.g. Juan Dela Cruz = JDC)</p>",
@@ -193,14 +209,11 @@ if not st.session_state.authenticated:
                 try:
                     df = get_data("Rosters")
                     df.columns = [str(c).strip() for c in df.columns]
-
                     if 'Initials' not in df.columns:
                         st.error("Initials column not found in Rosters sheet. Please contact admin.")
                         st.stop()
-
                     df['Initials_Clean'] = df['Initials'].astype(str).str.strip().str.upper()
                     user_row = df[df['Initials_Clean'] == initials_input]
-
                     if not user_row.empty:
                         stored_password = str(user_row.iloc[0]['Password']).strip()
                         if str(password_input).strip() == stored_password:
@@ -233,8 +246,7 @@ else:
     if is_temp:
         st.title("Set Your Password")
         st.info("Welcome! Please set a new personal password to continue.")
-        new_pass     = st.text_input("New Password", type="password",
-                                      help="Minimum 4 characters")
+        new_pass     = st.text_input("New Password", type="password", help="Minimum 4 characters")
         confirm_pass = st.text_input("Confirm Password", type="password")
 
         if st.button("Save Password", use_container_width=True, type="primary"):
@@ -245,14 +257,11 @@ else:
             else:
                 with st.spinner("Saving..."):
                     try:
-                        creds  = Credentials.from_service_account_info(
-                            svc_info, scopes=SYSTEM_SCOPES
-                        )
+                        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
                         client = gspread.authorize(creds)
                         sheet  = client.open(GS_FILENAME).worksheet("Rosters")
                         data   = sheet.get_all_records()
                         headers = sheet.row_values(1)
-
                         guard_name = str(user.get('Name', '')).strip()
                         for i, row in enumerate(data):
                             if str(row.get('Name', '')).strip() == guard_name:
@@ -285,28 +294,26 @@ else:
                 guard_assignments['Effective Date'] = pd.to_datetime(
                     guard_assignments['Effective Date'], dayfirst=True, errors='coerce'
                 )
-                latest_assignment = guard_assignments.sort_values(
-                    'Effective Date', ascending=False
-                ).iloc[0]
+                latest_assignment = guard_assignments.sort_values('Effective Date', ascending=False).iloc[0]
                 assigned_site = str(latest_assignment['Site']).strip()
             else:
                 assigned_site = "Floating / Unassigned"
 
-        # ── GREETING HEADER (Mobile-Optimized, Centered, Professional) ──────
+        # ── GREETING HEADER ──────────────────────────────────────────────────
         col_title, col_refresh = st.columns([5, 1])
         with col_title:
             st.markdown(
                 f"""
                 <div style='padding-top:6px;'>
                     <div style='
-                        font-size: clamp(18px, 10vw, 30px);
+                        font-size: clamp(14px, 4vw, 20px);
                         color: #7f8c8d;
                         font-weight: 600;
                         letter-spacing: 2px;
                         text-transform: uppercase;
                         text-align: center;
                         margin-bottom: 2px;
-                    '>Good day!</div>
+                    '>Good day,</div>
                     <div style='
                         font-size: clamp(15px, 4.5vw, 24px);
                         font-weight: 900;
@@ -332,7 +339,10 @@ else:
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["Attendance", "Requests", "Profile", "Payslip", "Balance"])
+        # ── TABS ─────────────────────────────────────────────────────────────
+        tab1, tab_ir, tab2, tab3, tab4, tab5 = st.tabs([
+            "Attendance", "🚨 Incident", "Requests", "Profile", "Payslip", "Balance"
+        ])
 
         # ── TAB 1: ATTENDANCE ────────────────────────────────────────────────
         with tab1:
@@ -344,7 +354,6 @@ else:
                 orders_df = get_data("PostOrders")
                 orders_df['Site_Clean'] = orders_df['Site'].astype(str).str.strip().str.upper()
                 site_orders = orders_df[orders_df['Site_Clean'] == assigned_site.upper()]
-
                 if not site_orders.empty:
                     possible_cols = ['Orders', 'Order_Content', 'Instructions']
                     found_col = next((c for c in possible_cols if c in site_orders.columns), None)
@@ -374,6 +383,140 @@ else:
             st.divider()
             unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
             st.link_button("CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
+
+        # ── TAB: INCIDENT REPORT ─────────────────────────────────────────────
+        with tab_ir:
+            st.markdown(
+                """
+                <div style="background:#dc3545;color:white;padding:12px 16px;
+                border-radius:8px;margin-bottom:16px;text-align:center;">
+                <div style="font-size:20px;font-weight:900;letter-spacing:1px;">
+                🚨 INCIDENT REPORT FORM</div>
+                <div style="font-size:11px;opacity:0.85;margin-top:4px;">
+                Fill in all fields accurately. This will be forwarded to Command Center immediately.</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            with st.form("incident_form", clear_on_submit=True):
+                st.markdown(f"**Reported by:** {user['Name']}")
+                st.markdown(f"**Site:** {assigned_site}")
+                st.divider()
+
+                st.markdown("#### 👤 WHO was involved?")
+                who = st.text_area(
+                    "who", label_visibility="collapsed",
+                    placeholder="Persons involved — suspects, victims, witnesses (name, description, age if known)...",
+                    height=90
+                )
+
+                st.markdown("#### 📋 WHAT happened?")
+                what = st.text_area(
+                    "what", label_visibility="collapsed",
+                    placeholder="Nature and description of the incident...",
+                    height=100
+                )
+
+                st.markdown("#### 📅 WHEN did it happen?")
+                col_date, col_time = st.columns(2)
+                with col_date:
+                    incident_date = st.date_input("Date", value=now_pst().date())
+                with col_time:
+                    incident_time = st.time_input("Time", value=now_pst().time())
+
+                st.markdown("#### 📍 WHERE did it happen?")
+                where = st.text_area(
+                    "where", label_visibility="collapsed",
+                    placeholder="Exact location within or near the site...",
+                    height=80
+                )
+
+                st.markdown("#### ❓ HOW did it happen?")
+                how = st.text_area(
+                    "how", label_visibility="collapsed",
+                    placeholder="Step-by-step sequence of events leading to and during the incident...",
+                    height=100
+                )
+
+                st.markdown("#### 🔧 Action Taken")
+                action_taken = st.text_area(
+                    "action", label_visibility="collapsed",
+                    placeholder="Immediate action taken by the guard on duty...",
+                    height=80
+                )
+
+                st.divider()
+                submitted = st.form_submit_button(
+                    "📤 SUBMIT INCIDENT REPORT",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+                if submitted:
+                    missing = []
+                    if not who.strip():          missing.append("WHO")
+                    if not what.strip():         missing.append("WHAT")
+                    if not where.strip():        missing.append("WHERE")
+                    if not how.strip():          missing.append("HOW")
+                    if not action_taken.strip(): missing.append("Action Taken")
+
+                    if missing:
+                        st.error(f"Please fill in: {', '.join(missing)}")
+                    else:
+                        incident_dt = (
+                            f"{incident_date.strftime('%B %d, %Y')} "
+                            f"{incident_time.strftime('%I:%M %p')}"
+                        )
+                        report_row = {
+                            "Submitted_At":      now_pst().strftime("%Y-%m-%d %H:%M:%S"),
+                            "Reported_By":       user['Name'],
+                            "Site":              assigned_site,
+                            "Who":               who.strip(),
+                            "What":              what.strip(),
+                            "Incident_DateTime": incident_dt,
+                            "Where":             where.strip(),
+                            "How":               how.strip(),
+                            "Action_Taken":      action_taken.strip(),
+                            "Status":            "NEW"
+                        }
+                        with st.spinner("Submitting to Command Center..."):
+                            success = append_to_sheet("Incident_Reports", report_row)
+                        if success:
+                            st.cache_data.clear()
+                            st.success(
+                                "✅ Incident Report submitted! "
+                                "Command Center has been notified."
+                            )
+                        else:
+                            st.error("⚠️ Submission failed. Try again or contact your supervisor.")
+
+            # ── Guard's own previous reports ─────────────────────────────────
+            st.divider()
+            st.markdown("#### My Previous Reports")
+            try:
+                ir_df = get_data("Incident_Reports")
+                if not ir_df.empty:
+                    ir_df['_name'] = ir_df['Reported_By'].astype(str).str.strip().str.upper()
+                    my_reports = ir_df[
+                        ir_df['_name'] == user['Name'].strip().upper()
+                    ].copy()
+                    if not my_reports.empty:
+                        display_cols = ['Submitted_At', 'Incident_DateTime', 'What', 'Status']
+                        available    = [c for c in display_cols if c in my_reports.columns]
+                        st.dataframe(
+                            my_reports[available].sort_values(
+                                'Submitted_At', ascending=False
+                            ),
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                    else:
+                        st.info("No previous incident reports filed.")
+                else:
+                    st.info("No incident reports on record yet.")
+            except Exception:
+                st.caption("Previous reports unavailable.")
 
         # ── TAB 2: REQUESTS ──────────────────────────────────────────────────
         with tab2:
@@ -525,8 +668,7 @@ else:
             try:
                 guard_full_name = str(user["Name"]).strip().upper()
 
-                # ── Load Cash Advance ─────────────────────────────────────────
-                ca_df    = get_data("Cash_Advance")
+                ca_df     = get_data("Cash_Advance")
                 unpaid_ca = pd.DataFrame()
                 if not ca_df.empty:
                     ca_df["_n"] = ca_df["Security Guard"].astype(str).str.strip().str.upper()
@@ -541,9 +683,10 @@ else:
                         unpaid_ca["Date of CA"], errors="coerce"
                     ).dt.strftime("%m/%d/%Y").fillna("")
                     unpaid_ca["_remarks"] = unpaid_ca["Remarks"].astype(str).str.strip()
-                    unpaid_ca.loc[unpaid_ca["_remarks"].str.upper().isin(["NAN","PAID",""]), "_remarks"] = "Cash Advance"
+                    unpaid_ca.loc[
+                        unpaid_ca["_remarks"].str.upper().isin(["NAN","PAID",""]), "_remarks"
+                    ] = "Cash Advance"
 
-                # ── Load Guards Payable ───────────────────────────────────────
                 gp_df     = get_data("Guards_Payable")
                 unpaid_gp = pd.DataFrame()
                 if not gp_df.empty:
@@ -580,13 +723,13 @@ else:
                     st.markdown(
                         f'<div style="background:#001f3f;color:white;padding:16px;'
                         f'border-radius:12px;text-align:center;margin-bottom:16px;">'
-                        f'<div style="font-size:11px;opacity:0.7;letter-spacing:1px;">TOTAL OUTSTANDING BALANCE</div>'
+                        f'<div style="font-size:11px;opacity:0.7;letter-spacing:1px;">'
+                        f'TOTAL OUTSTANDING BALANCE</div>'
                         f'<div style="font-size:32px;font-weight:800;">&#8369; {grand_total:,.2f}</div>'
                         f'</div>',
                         unsafe_allow_html=True
                     )
 
-                    # ── Cash Advance section ──────────────────────────────────
                     if not unpaid_ca.empty:
                         st.markdown(
                             f'<div style="background:#dc3545;color:white;padding:8px 16px;'
@@ -609,7 +752,6 @@ else:
                             )
                         st.markdown("<div style='margin-bottom:12px;'></div>", unsafe_allow_html=True)
 
-                    # ── Others / Guards Payable section ──────────────────────
                     if not unpaid_gp.empty:
                         st.markdown(
                             f'<div style="background:#6c757d;color:white;padding:8px 16px;'
