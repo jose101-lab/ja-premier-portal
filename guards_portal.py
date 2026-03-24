@@ -299,7 +299,7 @@ else:
                 f"""
                 <div style='padding-top:6px;'>
                     <div style='
-                        font-size: clamp(14px, 4vw, 20px);
+                        font-size: clamp(18px, 6vw, 30px);
                         color: #7f8c8d;
                         font-weight: 600;
                         letter-spacing: 2px;
