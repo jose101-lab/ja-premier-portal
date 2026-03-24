@@ -299,14 +299,14 @@ else:
                 f"""
                 <div style='padding-top:6px;'>
                     <div style='
-                        font-size: clamp(18px, 6vw, 30px);
+                        font-size: clamp(18px, 10vw, 30px);
                         color: #7f8c8d;
                         font-weight: 600;
                         letter-spacing: 2px;
                         text-transform: uppercase;
                         text-align: center;
                         margin-bottom: 2px;
-                    '>Good day,</div>
+                    '>Good day!</div>
                     <div style='
                         font-size: clamp(15px, 4.5vw, 24px);
                         font-weight: 900;
