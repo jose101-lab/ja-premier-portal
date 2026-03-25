@@ -554,7 +554,9 @@ else:
         # ── TAB 3: PROFILE ───────────────────────────────────────────────────
         with tab3:
             st.subheader("My Info")
- 
+            
+            st.write(user)
+            
             # Build profile fields
             name_val        = str(user.get('Name', 'N/A'))
             initials_val    = str(user.get('Initials', '')).strip().upper() or 'N/A'
