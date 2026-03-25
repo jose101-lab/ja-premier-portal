@@ -231,15 +231,12 @@ if not st.session_state.authenticated:
 else:
     user = st.session_state.user_data
 
-    raw_id = user.get('SECURITY_ID', 'N/A')
-    try:
-        clean_id = (
-            str(int(float(raw_id)))
-            if pd.notna(raw_id) and str(raw_id).lower() != 'nan'
-            else "N/A"
-        )
-    except:
-        clean_id = "N/A"
+   raw_id = user.get('SECURITY_ID')
+
+if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']:
+    clean_id = "N/A"
+else:
+    clean_id = str(raw_id).strip()
 
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
