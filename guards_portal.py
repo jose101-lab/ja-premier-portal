@@ -554,14 +554,34 @@ else:
         # ── TAB 3: PROFILE ───────────────────────────────────────────────────
         with tab3:
             st.subheader("My Info")
-            st.write(f"**Name:** {user['Name']}")
-            mobile = user.get('Mobile_Number', '')
-            if mobile and str(mobile) not in ['', 'nan', 'None']:
-                st.write(f"**Mobile:** {clean_to_digits(mobile)}")
-            initials = user.get('Initials', '')
-            if initials:
-                st.write(f"**Initials:** {str(initials).strip().upper()}")
-            st.write(f"**Security ID:** {clean_id}")
+ 
+            # Build profile fields
+            name_val        = str(user.get('Name', 'N/A'))
+            initials_val    = str(user.get('Initials', '')).strip().upper() or 'N/A'
+            mobile_val      = user.get('Mobile_Number', '')
+            designation_val = str(user.get('Designation', '')).strip()
+ 
+            def profile_card(label, value, color="#001f3f"):
+                return (
+                    f'<div style="background:#f8f9fa;border-radius:10px;padding:14px 18px;'
+                    f'border-left:5px solid {color};margin-bottom:10px;">'
+                    f'<div style="font-size:10px;color:#888;letter-spacing:1px;'
+                    f'text-transform:uppercase;">{label}</div>'
+                    f'<div style="font-size:16px;font-weight:700;color:#001f3f;'
+                    f'margin-top:2px;">{value}</div>'
+                    f'</div>'
+                )
+ 
+            st.markdown(profile_card("Full Name",       name_val,     "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Security ID",     clean_id,     "#0074D9"), unsafe_allow_html=True)
+            st.markdown(profile_card("Login Initials",  initials_val, "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Post Assignment", assigned_site,"#28a745"), unsafe_allow_html=True)
+ 
+            if mobile_val and str(mobile_val) not in ['', 'nan', 'None']:
+                st.markdown(profile_card("Mobile Number", clean_to_digits(mobile_val), "#0074D9"), unsafe_allow_html=True)
+ 
+            if designation_val and designation_val.lower() not in ['', 'nan', 'none']:
+                st.markdown(profile_card("Designation", designation_val, "#6c757d"), unsafe_allow_html=True)
 
         # ── TAB 4: PAYSLIP ───────────────────────────────────────────────────
         with tab4:
