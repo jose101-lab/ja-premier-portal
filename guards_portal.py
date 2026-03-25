@@ -231,7 +231,7 @@ if not st.session_state.authenticated:
 else:
     user = st.session_state.user_data
 
-    raw_id = user.get('Security_ID', 'N/A')
+    raw_id = user.get('SECURITY_ID', 'N/A')
     try:
         clean_id = (
             str(int(float(raw_id)))
