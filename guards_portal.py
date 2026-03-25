@@ -227,23 +227,25 @@ if not st.session_state.authenticated:
                 except Exception as e:
                     st.error(f"Login System Error: {e}")
 
-# --- 8. LOGGED IN CONTENT ---
+# 8. LOGGED IN CONTENT
 else:
     user = st.session_state.user_data
+    raw_id = user.get('SECURITY_ID')
 
-   raw_id = user.get('SECURITY_ID')
+    # Data Cleaning for ID
+    if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']:
+        clean_id = "N/A"
+    else:
+        clean_id = str(raw_id).strip()
 
-if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']:
-    clean_id = "N/A"
-else:
-    clean_id = str(raw_id).strip()
-
+    # Check if the user has a temporary password
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
     if is_temp:
         st.title("Set Your Password")
         st.info("Welcome! Please set a new personal password to continue.")
-        new_pass     = st.text_input("New Password", type="password", help="Minimum 4 characters")
+        
+        new_pass = st.text_input("New Password", type="password", help="Minimum 4 characters")
         confirm_pass = st.text_input("Confirm Password", type="password")
 
         if st.button("Save Password", use_container_width=True, type="primary"):
@@ -254,39 +256,47 @@ else:
             else:
                 with st.spinner("Saving..."):
                     try:
-                        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
+                        creds = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
                         client = gspread.authorize(creds)
-                        sheet  = client.open(GS_FILENAME).worksheet("Rosters")
-                        data   = sheet.get_all_records()
+                        sheet = client.open(GS_FILENAME).worksheet("Rosters")
+                        data = sheet.get_all_records()
                         headers = sheet.row_values(1)
                         guard_name = str(user.get('Name', '')).strip()
+                        
                         for i, row in enumerate(data):
                             if str(row.get('Name', '')).strip() == guard_name:
                                 row_num = i + 2
                                 pwd_col = headers.index('Password') + 1
                                 sheet.update_cell(row_num, pwd_col, new_pass)
+                                
                                 if 'Is_Temporary' in headers:
                                     tmp_col = headers.index('Is_Temporary') + 1
                                     sheet.update_cell(row_num, tmp_col, 'FALSE')
+                                
                                 st.success("Password saved! Please log in again.")
                                 st.cache_data.clear()
                                 st.session_state.authenticated = False
-                                st.session_state.user_data     = None
+                                st.session_state.user_data = None
                                 st.rerun()
                                 break
                         else:
                             st.error("Could not find your record. Contact admin.")
                     except Exception as e:
                         st.error(f"Error saving password: {e}")
+    
+    # User is fully logged in and password is not temporary
     else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
 
         with st.spinner("Fetching Schedule..."):
-            guards_tab_df      = get_data("GUARDS")
+            guards_tab_df = get_data("GUARDS")
             current_guard_name = str(user['Name']).strip().upper()
-            guard_assignments  = guards_tab_df[
+            
+            # Filter assignments
+            guard_assignments = guards_tab_df[
                 guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name
-            ]
+            ].copy() # Using copy to avoid SettingWithCopyWarning
+            
             if not guard_assignments.empty:
                 guard_assignments['Effective Date'] = pd.to_datetime(
                     guard_assignments['Effective Date'], dayfirst=True, errors='coerce'
@@ -329,6 +339,7 @@ else:
                 """,
                 unsafe_allow_html=True
             )
+            
         with col_refresh:
             st.markdown("<div style='padding-top:22px;'>", unsafe_allow_html=True)
             if st.button("↻", help="Refresh page"):
@@ -340,6 +351,10 @@ else:
         tab1, tab_ir, tab2, tab3, tab4, tab5 = st.tabs([
             "Attendance", "🚨 Incident", "Requests", "Profile", "Payslip", "Balance"
         ])
+        
+        with tab1:
+            st.write(f"Assigned Site: **{assigned_site}**")
+            # Additional attendance logic here...
 
         # ── TAB 1: ATTENDANCE ────────────────────────────────────────────────
         with tab1:
