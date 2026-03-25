@@ -554,14 +554,133 @@ else:
         # ── TAB 3: PROFILE ───────────────────────────────────────────────────
         with tab3:
             st.subheader("My Info")
-            st.write(f"**Name:** {user['Name']}")
-            mobile = user.get('Mobile_Number', '')
-            if mobile and str(mobile) not in ['', 'nan', 'None']:
-                st.write(f"**Mobile:** {clean_to_digits(mobile)}")
-            initials = user.get('Initials', '')
-            if initials:
-                st.write(f"**Initials:** {str(initials).strip().upper()}")
-            st.write(f"**Security ID:** {clean_id}")
+ 
+            # Build profile fields
+            name_val        = str(user.get('Name', 'N/A'))
+            initials_val    = str(user.get('Initials', '')).strip().upper() or 'N/A'
+            mobile_val      = user.get('Mobile_Number', '')
+            designation_val = str(user.get('Designation', '')).strip()
+ 
+            def profile_card(label, value, color="#001f3f"):
+                return (
+                    f'<div style="background:#f8f9fa;border-radius:10px;padding:14px 18px;'
+                    f'border-left:5px solid {color};margin-bottom:10px;">'
+                    f'<div style="font-size:10px;color:#888;letter-spacing:1px;'
+                    f'text-transform:uppercase;">{label}</div>'
+                    f'<div style="font-size:16px;font-weight:700;color:#001f3f;'
+                    f'margin-top:2px;">{value}</div>'
+                    f'</div>'
+                )
+ 
+            st.markdown(profile_card("Full Name",       name_val,     "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Security ID",     clean_id,     "#0074D9"), unsafe_allow_html=True)
+            st.markdown(profile_card("Login Initials",  initials_val, "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Post Assignment", assigned_site,"#28a745"), unsafe_allow_html=True)
+ 
+            if mobile_val and str(mobile_val) not in ['', 'nan', 'None']:
+                st.markdown(profile_card("Mobile Number", clean_to_digits(mobile_val), "#0074D9"), unsafe_allow_html=True)
+ 
+            if designation_val and designation_val.lower() not in ['', 'nan', 'none']:
+                st.markdown(profile_card("Designation", designation_val, "#6c757d"), unsafe_allow_html=True)
+ 
+        # ── TAB 4: PAYSLIP ───────────────────────────────────────────────────
+        with tab4:
+            st.subheader("My Payslip")
+            try:
+                ctrl_df      = get_data("PayrollControl")
+                is_published = (
+                    not ctrl_df.empty and
+                    str(ctrl_df.iloc[0].get("Status", "")).upper() == "PUBLISHED"
+                )
+                if not is_published:
+                    st.markdown(
+                        """<div style="background:#f8f9fa;border-left:6px solid #001f3f;"""
+                        """padding:20px;border-radius:8px;text-align:center;margin-top:20px;">"""
+                        """<div style="font-size:40px;margin-bottom:10px;">&#128203;</div>"""
+                        """<div style="font-size:16px;font-weight:bold;color:#001f3f;">"""
+                        """No payslip available yet</div>"""
+                        """<div style="font-size:13px;color:#666;margin-top:6px;">"""
+                        """Your payslip will appear here once admin releases it.</div>"""
+                        """</div>""",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    payroll_df = get_data("Payroll")
+                    if payroll_df.empty:
+                        st.info("No payroll data available yet.")
+                    else:
+                        guard_name_upper = str(user["Name"]).strip().upper()
+                        payroll_df["_name_upper"] = payroll_df["Employee Name"].astype(str).str.strip().str.upper()
+                        my_records = payroll_df[payroll_df["_name_upper"] == guard_name_upper].copy()
+ 
+                        if my_records.empty:
+                            st.warning("No payslip found for your account. Contact admin.")
+                        else:
+                            if len(my_records) > 1:
+                                periods  = my_records["Date Covered"].tolist()
+                                chosen   = st.selectbox("Select Pay Period", periods)
+                                row_data = my_records[my_records["Date Covered"] == chosen].iloc[0].to_dict()
+                            else:
+                                row_data = my_records.iloc[0].to_dict()
+                                st.caption(f"Pay Period: **{row_data.get('Date Covered', '')}**")
+ 
+                            numeric_cols = [
+                                "Daily Rate", "Basic Salary", "Holiday", "Overtime pay",
+                                "Night Differential", "5 days Incentives", "Uniform Allowance",
+                                "Gross Pay", "SSS", "Pag-Ibig", "PhilHealth", "Loans",
+                                "FA Bonds", "Cash Advance", "Total Deduction", "NET PAY"
+                            ]
+                            for col in numeric_cols:
+                                try:    row_data[col] = float(str(row_data.get(col, 0) or 0).replace(",", ""))
+                                except: row_data[col] = 0.0
+ 
+                            net    = row_data["NET PAY"]
+                            period = row_data.get("Date Covered", "")
+                            st.markdown(
+                                f"""<div style="background:#001f3f;color:white;padding:16px;"""
+                                f"""border-radius:12px;text-align:center;margin-bottom:12px;">"""
+                                f"""<div style="font-size:12px;opacity:0.7;">NET PAY</div>"""
+                                f"""<div style="font-size:28px;font-weight:bold;">&#8369; {net:,.2f}</div>"""
+                                f"""<div style="font-size:11px;opacity:0.6;">{period}</div></div>""",
+                                unsafe_allow_html=True
+                            )
+ 
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown("**Earnings**")
+                                st.write(f"Basic Salary: \u20b1{row_data['Basic Salary']:,.2f}")
+                                st.write(f"Holiday: \u20b1{row_data['Holiday']:,.2f}")
+                                st.write(f"Overtime: \u20b1{row_data['Overtime pay']:,.2f}")
+                                st.write(f"Night Diff: \u20b1{row_data['Night Differential']:,.2f}")
+                                st.write(f"5-Day Incentive: \u20b1{row_data['5 days Incentives']:,.2f}")
+                                st.write(f"Uniform Allow.: \u20b1{row_data['Uniform Allowance']:,.2f}")
+                                st.markdown(f"**Gross Pay: \u20b1{row_data['Gross Pay']:,.2f}**")
+                            with c2:
+                                st.markdown("**Deductions**")
+                                st.write(f"SSS: \u20b1{row_data['SSS']:,.2f}")
+                                st.write(f"Pag-Ibig: \u20b1{row_data['Pag-Ibig']:,.2f}")
+                                st.write(f"PhilHealth: \u20b1{row_data['PhilHealth']:,.2f}")
+                                st.write(f"Loans: \u20b1{row_data['Loans']:,.2f}")
+                                st.write(f"FA Bonds: \u20b1{row_data['FA Bonds']:,.2f}")
+                                st.write(f"Cash Advance: \u20b1{row_data['Cash Advance']:,.2f}")
+                                st.markdown(f"**Total Deduction: \u20b1{row_data['Total Deduction']:,.2f}**")
+ 
+                            st.divider()
+                            pdf_bytes = generate_payslip_pdf(row_data)
+                            filename  = (
+                                f"Payslip_{str(user['Name']).replace(' ', '_')}_"
+                                f"{str(row_data.get('Date Covered', '')).replace('/', '_')}.pdf"
+                            )
+                            st.download_button(
+                                label="Download My Payslip PDF",
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime="application/pdf",
+                                use_container_width=True,
+                                type="primary"
+                            )
+            except Exception as e:
+                st.error(f"Could not load payslip: {e}")
 
         # ── TAB 4: PAYSLIP ───────────────────────────────────────────────────
         with tab4:
