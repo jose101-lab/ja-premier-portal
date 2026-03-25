@@ -559,7 +559,7 @@ else:
             name_val        = str(user.get('Name', 'N/A'))
             initials_val    = str(user.get('Initials', '')).strip().upper() or 'N/A'
             mobile_val      = user.get('Mobile_Number', '')
-            designation_val = str(user.get('SECURITY_ID', '')).strip()
+            designation_val = str(user.get('Designation', '')).strip()
  
             def profile_card(label, value, color="#001f3f"):
                 return (
