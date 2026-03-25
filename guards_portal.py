@@ -313,7 +313,7 @@ else:
                         text-transform: uppercase;
                         text-align: center;
                         margin-bottom: 2px;
-                    '>Good day,</div>
+                    '>Good day!</div>
                     <div style='
                         font-size: clamp(15px, 4.5vw, 24px);
                         font-weight: 900;
