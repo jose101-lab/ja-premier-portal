@@ -233,9 +233,9 @@ else:
 
    raw_id = user.get('SECURITY_ID')
 
-if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']:
+    if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']:
     clean_id = "N/A"
-else:
+        else:
     clean_id = str(raw_id).strip()
 
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
