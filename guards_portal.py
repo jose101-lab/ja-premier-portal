@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import os
 import base64
 import json
+import re
 
 # Philippine Standard Time
 PST = ZoneInfo("Asia/Manila")
@@ -65,32 +66,174 @@ except Exception:
         st.error(f"Could not load credentials: {e}")
         st.stop()
 
-# --- 5. UTILITY FUNCTIONS ---
-def get_base64_of_bin_file(bin_file):
-    with open(bin_file, 'rb') as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
+# ============================================================
+# --- CACHING LAYER ---
+# ============================================================
 
-def clean_to_digits(value):
-    v = str(value).replace('.0', '').strip()
-    digits = "".join(filter(str.isdigit, v))
-    if len(digits) == 10 and digits.startswith('9'):
-        return "0" + digits
-    return digits
+def _freeze_svc(svc_info: dict) -> frozenset:
+    """Convert svc_info dict → frozenset so it works as a cache key."""
+    return frozenset(svc_info.items())
 
-@st.cache_data(ttl=60)
-def get_data(sheet_name, _key=None):
+_svc_frozen = _freeze_svc(svc_info)
+
+
+@st.cache_resource
+def build_gspread_client(svc_info_frozen: frozenset):
+    """
+    Cache the authenticated gspread client as a RESOURCE.
+    OAuth handshake happens once per server process — never repeated
+    across rerenders or tab switches.
+    """
+    creds = Credentials.from_service_account_info(
+        dict(svc_info_frozen), scopes=SYSTEM_SCOPES
+    )
+    return gspread.authorize(creds)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_data(sheet_name: str, svc_info_frozen: frozenset) -> pd.DataFrame:
+    """
+    Fetch a single sheet and cache it for 60 seconds.
+    Reuses the cached gspread client — no redundant OAuth calls.
+    All callers share the same cache entry for the same sheet_name.
+    """
     try:
-        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
-        client = gspread.authorize(creds)
+        client = build_gspread_client(svc_info_frozen)
         ws     = client.open(GS_FILENAME).worksheet(sheet_name)
         return pd.DataFrame(ws.get_all_records())
     except Exception as e:
         st.error(f"Error reading {sheet_name}: {e}")
         return pd.DataFrame()
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_guard_balance(guard_name: str, svc_info_frozen: frozenset):
+    """
+    Fetch Cash Advance + Guards Payable for ONE guard, cached 5 min.
+    Isolated so it can be invalidated independently from other sheets.
+    Returns (unpaid_ca_df, unpaid_gp_df, total_ca, total_gp, grand_total).
+    """
+    try:
+        ca_df     = get_data("Cash_Advance",   svc_info_frozen)
+        gp_df     = get_data("Guards_Payable", svc_info_frozen)
+        guard_upper = guard_name.strip().upper()
+
+        unpaid_ca = pd.DataFrame()
+        if not ca_df.empty:
+            ca_df["_n"]    = ca_df["Security Guard"].astype(str).str.strip().str.upper()
+            my_ca          = ca_df[ca_df["_n"] == guard_upper].copy()
+            my_ca["_paid"] = my_ca["Remarks"].astype(str).str.strip().str.upper()
+            unpaid_ca      = my_ca[my_ca["_paid"] != "PAID"].copy()
+            unpaid_ca["_amount"] = pd.to_numeric(
+                unpaid_ca["Amount"].astype(str).str.replace(",", "").str.strip(),
+                errors="coerce"
+            ).fillna(0)
+            unpaid_ca["_date"] = pd.to_datetime(
+                unpaid_ca["Date of CA"], errors="coerce"
+            ).dt.strftime("%m/%d/%Y").fillna("")
+            unpaid_ca["_remarks"] = unpaid_ca["Remarks"].astype(str).str.strip()
+            unpaid_ca.loc[
+                unpaid_ca["_remarks"].str.upper().isin(["NAN", "PAID", ""]), "_remarks"
+            ] = "Cash Advance"
+
+        unpaid_gp = pd.DataFrame()
+        if not gp_df.empty:
+            gp_df["_n"]    = gp_df["Security Guard"].apply(normalize_name)
+            my_gp          = gp_df[gp_df["_n"] == normalize_name(guard_name)].copy()
+            my_gp["_paid"] = my_gp["Status"].astype(str).str.strip().str.upper()
+            unpaid_gp      = my_gp[my_gp["_paid"] != "PAID"].copy()
+            unpaid_gp["_amount"] = pd.to_numeric(
+                unpaid_gp["Amount"].astype(str).str.replace(",", "").str.strip(),
+                errors="coerce"
+            ).fillna(0)
+            unpaid_gp["_date"] = pd.to_datetime(
+                unpaid_gp["Date"], errors="coerce"
+            ).dt.strftime("%m/%d/%Y").fillna("")
+            unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
+
+        total_ca    = float(unpaid_ca["_amount"].sum()) if not unpaid_ca.empty else 0.0
+        total_gp    = float(unpaid_gp["_amount"].sum()) if not unpaid_gp.empty else 0.0
+        grand_total = total_ca + total_gp
+        return unpaid_ca, unpaid_gp, total_ca, total_gp, grand_total
+
+    except Exception as e:
+        st.error(f"Balance error: {e}")
+        return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0, 0.0
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def get_guard_assignment(guard_name: str, svc_info_frozen: frozenset) -> str:
+    """
+    Resolve the latest site assignment for a guard, cached 2 min.
+    Avoids re-fetching GUARDS sheet on every tab switch.
+    """
+    try:
+        guards_df = get_data("GUARDS", svc_info_frozen)
+        guard_upper = guard_name.strip().upper()
+        assignments = guards_df[
+            guards_df["Guard Name"].astype(str).str.strip().str.upper() == guard_upper
+        ].copy()
+        if assignments.empty:
+            return "Floating / Unassigned"
+        assignments["Effective Date"] = pd.to_datetime(
+            assignments["Effective Date"], dayfirst=True, errors="coerce"
+        )
+        return str(
+            assignments.sort_values("Effective Date", ascending=False).iloc[0]["Site"]
+        ).strip()
+    except Exception:
+        return "Floating / Unassigned"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_payroll_for_guard(guard_name: str, svc_info_frozen: frozenset):
+    """
+    Fetch PayrollControl + Payroll sheet, filter to one guard, cached 5 min.
+    Returns (is_published, my_records_df).
+    """
+    try:
+        ctrl_df = get_data("PayrollControl", svc_info_frozen)
+        is_published = (
+            not ctrl_df.empty and
+            str(ctrl_df.iloc[0].get("Status", "")).upper() == "PUBLISHED"
+        )
+        if not is_published:
+            return False, pd.DataFrame()
+
+        payroll_df = get_data("Payroll", svc_info_frozen)
+        if payroll_df.empty:
+            return True, pd.DataFrame()
+
+        payroll_df["_name_upper"] = (
+            payroll_df["Employee Name"].astype(str).str.strip().str.upper()
+        )
+        my_records = payroll_df[
+            payroll_df["_name_upper"] == guard_name.strip().upper()
+        ].copy()
+        return True, my_records
+    except Exception:
+        return False, pd.DataFrame()
+
+
+# ============================================================
+# --- 5. UTILITY FUNCTIONS ---
+# ============================================================
+
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+
+def clean_to_digits(value):
+    v      = str(value).replace('.0', '').strip()
+    digits = "".join(filter(str.isdigit, v))
+    if len(digits) == 10 and digits.startswith('9'):
+        return "0" + digits
+    return digits
+
+
 def normalize_name(name):
-    import re
     n = str(name).strip().upper()
     n = re.sub(r'^SG\s+', '', n)
     if ',' in n:
@@ -98,10 +241,11 @@ def normalize_name(name):
         n = f"{parts[1].strip()} {parts[0].strip()}"
     return ' '.join(n.split())
 
+
 def update_sheet(sheet_name, df):
+    """Full sheet overwrite. Reuses cached gspread client."""
     try:
-        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
-        client = gspread.authorize(creds)
+        client = build_gspread_client(_svc_frozen)
         ws     = client.open(GS_FILENAME).worksheet(sheet_name)
         ws.clear()
         ws.update([df.columns.tolist()] + df.fillna("").values.tolist())
@@ -110,11 +254,11 @@ def update_sheet(sheet_name, df):
         st.error(f"Update error: {e}")
         return False
 
+
 def append_to_sheet(sheet_name, row_dict):
     """Append a single row; auto-creates sheet with headers if missing."""
     try:
-        creds  = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
-        client = gspread.authorize(creds)
+        client = build_gspread_client(_svc_frozen)
         wb     = client.open(GS_FILENAME)
         try:
             ws = wb.worksheet(sheet_name)
@@ -127,6 +271,7 @@ def append_to_sheet(sheet_name, row_dict):
         st.error(f"Append error: {e}")
         return False
 
+
 def style_status(val):
     val_upper = str(val).upper().strip()
     if val_upper == 'APPROVED':
@@ -137,10 +282,15 @@ def style_status(val):
         return 'background-color: #dc3545; color: white; font-weight: bold;'
     return ''
 
+
 def submit_request(req_type, details):
     with st.spinner("Submitting request..."):
-        mobile = st.session_state.user_data.get('Mobile_Number', '')
-        clean_mob = clean_to_digits(mobile) if mobile and str(mobile) not in ['', 'nan', 'None'] else ''
+        mobile    = st.session_state.user_data.get('Mobile_Number', '')
+        clean_mob = (
+            clean_to_digits(mobile)
+            if mobile and str(mobile) not in ['', 'nan', 'None']
+            else ''
+        )
         new_req = pd.DataFrame([{
             "Date":          now_pst().strftime("%Y-%m-%d %H:%M:%S"),
             "Mobile_Number": clean_mob,
@@ -150,7 +300,7 @@ def submit_request(req_type, details):
             "Status":        "PENDING"
         }])
         try:
-            existing_reqs = get_data("Request")
+            existing_reqs = get_data("Request", _svc_frozen)
             updated_reqs  = pd.concat([existing_reqs, new_req], ignore_index=True)
             update_sheet("Request", updated_reqs)
             st.success("Request sent!")
@@ -158,12 +308,16 @@ def submit_request(req_type, details):
         except Exception as e:
             st.error(f"Error: {e}")
 
+
 # --- 6. SESSION MANAGEMENT ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.user_data     = None
 
+# ============================================================
 # --- 7. LOGIN SCREEN ---
+# ============================================================
+
 if not st.session_state.authenticated:
     st.markdown("""
         <style>
@@ -207,7 +361,8 @@ if not st.session_state.authenticated:
         else:
             with st.spinner("Verifying..."):
                 try:
-                    df = get_data("Rosters")
+                    # Rosters is cached — fast on repeated logins within 60s
+                    df = get_data("Rosters", _svc_frozen)
                     df.columns = [str(c).strip() for c in df.columns]
                     if 'Initials' not in df.columns:
                         st.error("Initials column not found in Rosters sheet. Please contact admin.")
@@ -227,25 +382,28 @@ if not st.session_state.authenticated:
                 except Exception as e:
                     st.error(f"Login System Error: {e}")
 
-# 8. LOGGED IN CONTENT
+# ============================================================
+# --- 8. LOGGED IN CONTENT ---
+# ============================================================
+
 else:
-    user = st.session_state.user_data
+    user   = st.session_state.user_data
     raw_id = user.get('SECURITY_ID')
 
-    # Data Cleaning for ID
-    if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']:
-        clean_id = "N/A"
-    else:
-        clean_id = str(raw_id).strip()
+    clean_id = (
+        "N/A"
+        if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']
+        else str(raw_id).strip()
+    )
 
-    # Check if the user has a temporary password
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
+    # ── PASSWORD CHANGE SCREEN ───────────────────────────────────────────────
     if is_temp:
         st.title("Set Your Password")
         st.info("Welcome! Please set a new personal password to continue.")
-        
-        new_pass = st.text_input("New Password", type="password", help="Minimum 4 characters")
+
+        new_pass     = st.text_input("New Password",     type="password", help="Minimum 4 characters")
         confirm_pass = st.text_input("Confirm Password", type="password")
 
         if st.button("Save Password", use_container_width=True, type="primary"):
@@ -256,55 +414,38 @@ else:
             else:
                 with st.spinner("Saving..."):
                     try:
-                        creds = Credentials.from_service_account_info(svc_info, scopes=SYSTEM_SCOPES)
-                        client = gspread.authorize(creds)
-                        sheet = client.open(GS_FILENAME).worksheet("Rosters")
-                        data = sheet.get_all_records()
-                        headers = sheet.row_values(1)
-                        guard_name = str(user.get('Name', '')).strip()
-                        
+                        # Reuse cached client — no fresh OAuth
+                        client      = build_gspread_client(_svc_frozen)
+                        sheet       = client.open(GS_FILENAME).worksheet("Rosters")
+                        data        = sheet.get_all_records()
+                        headers     = sheet.row_values(1)
+                        guard_name  = str(user.get('Name', '')).strip()
+
                         for i, row in enumerate(data):
                             if str(row.get('Name', '')).strip() == guard_name:
                                 row_num = i + 2
                                 pwd_col = headers.index('Password') + 1
                                 sheet.update_cell(row_num, pwd_col, new_pass)
-                                
                                 if 'Is_Temporary' in headers:
                                     tmp_col = headers.index('Is_Temporary') + 1
                                     sheet.update_cell(row_num, tmp_col, 'FALSE')
-                                
                                 st.success("Password saved! Please log in again.")
                                 st.cache_data.clear()
                                 st.session_state.authenticated = False
-                                st.session_state.user_data = None
+                                st.session_state.user_data     = None
                                 st.rerun()
                                 break
                         else:
                             st.error("Could not find your record. Contact admin.")
                     except Exception as e:
                         st.error(f"Error saving password: {e}")
-    
-    # User is fully logged in and password is not temporary
+
+    # ── MAIN PORTAL ──────────────────────────────────────────────────────────
     else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
 
-        with st.spinner("Fetching Schedule..."):
-            guards_tab_df = get_data("GUARDS")
-            current_guard_name = str(user['Name']).strip().upper()
-            
-            # Filter assignments
-            guard_assignments = guards_tab_df[
-                guards_tab_df['Guard Name'].astype(str).str.strip().str.upper() == current_guard_name
-            ].copy() # Using copy to avoid SettingWithCopyWarning
-            
-            if not guard_assignments.empty:
-                guard_assignments['Effective Date'] = pd.to_datetime(
-                    guard_assignments['Effective Date'], dayfirst=True, errors='coerce'
-                )
-                latest_assignment = guard_assignments.sort_values('Effective Date', ascending=False).iloc[0]
-                assigned_site = str(latest_assignment['Site']).strip()
-            else:
-                assigned_site = "Floating / Unassigned"
+        # Resolve site assignment from cache — no spinner blocking the UI
+        assigned_site = get_guard_assignment(str(user['Name']), _svc_frozen)
 
         # ── GREETING HEADER ──────────────────────────────────────────────────
         col_title, col_refresh = st.columns([5, 1])
@@ -314,24 +455,17 @@ else:
                 <div style='padding-top:6px;'>
                     <div style='
                         font-size: clamp(14px, 6vw, 20px);
-                        color: #7f8c8d;
-                        font-weight: 600;
-                        letter-spacing: 2px;
-                        text-transform: uppercase;
-                        text-align: center;
-                        margin-bottom: 2px;
+                        color: #7f8c8d; font-weight: 600;
+                        letter-spacing: 2px; text-transform: uppercase;
+                        text-align: center; margin-bottom: 2px;
                     '>Good day!</div>
                     <div style='
                         font-size: clamp(15px, 4.5vw, 24px);
-                        font-weight: 900;
-                        color: #ffffff;
+                        font-weight: 900; color: #ffffff;
                         background: linear-gradient(135deg, #001f3f, #003f7f);
-                        padding: 6px 14px;
-                        border-radius: 8px;
-                        text-align: center;
-                        white-space: nowrap;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
+                        padding: 6px 14px; border-radius: 8px;
+                        text-align: center; white-space: nowrap;
+                        overflow: hidden; text-overflow: ellipsis;
                         letter-spacing: 0.5px;
                         box-shadow: 0 2px 8px rgba(0,31,63,0.18);
                     '>{user['Name']}</div>
@@ -339,7 +473,6 @@ else:
                 """,
                 unsafe_allow_html=True
             )
-            
         with col_refresh:
             st.markdown("<div style='padding-top:22px;'>", unsafe_allow_html=True)
             if st.button("↻", help="Refresh page"):
@@ -351,10 +484,6 @@ else:
         tab1, tab_ir, tab2, tab3, tab4, tab5 = st.tabs([
             "Attendance", "🚨 Incident", "Requests", "Profile", "Payslip", "Balance"
         ])
-        
-        with tab1:
-            st.write(f"Assigned Site: **{assigned_site}**")
-            # Additional attendance logic here...
 
         # ── TAB 1: ATTENDANCE ────────────────────────────────────────────────
         with tab1:
@@ -363,12 +492,12 @@ else:
 
             st.markdown("### Post Orders")
             try:
-                orders_df = get_data("PostOrders")
+                orders_df = get_data("PostOrders", _svc_frozen)
                 orders_df['Site_Clean'] = orders_df['Site'].astype(str).str.strip().str.upper()
                 site_orders = orders_df[orders_df['Site_Clean'] == assigned_site.upper()]
                 if not site_orders.empty:
                     possible_cols = ['Orders', 'Order_Content', 'Instructions']
-                    found_col = next((c for c in possible_cols if c in site_orders.columns), None)
+                    found_col     = next((c for c in possible_cols if c in site_orders.columns), None)
                     if found_col:
                         specific_order = site_orders.iloc[0][found_col]
                         st.warning(f"**Instructions:**\n\n{specific_order}")
@@ -381,11 +510,12 @@ else:
                                 "Status":        "CONFIRMED READ"
                             }])
                             try:
-                                existing_logs = get_data("PostOrderLogs")
+                                existing_logs = get_data("PostOrderLogs", _svc_frozen)
                                 updated_logs  = pd.concat([existing_logs, new_log], ignore_index=True)
                                 update_sheet("PostOrderLogs", updated_logs)
                                 st.success("Sent to Command Center!")
-                            except:
+                                st.cache_data.clear()
+                            except Exception:
                                 st.error("Log error.")
                 else:
                     st.success("Standard protocols apply today.")
@@ -419,17 +549,15 @@ else:
                 st.markdown("#### 👤 WHO was involved?")
                 who = st.text_area(
                     "who", label_visibility="collapsed",
-                    placeholder="Persons involved — suspects, victims, witnesses (name, description, age if known)...",
+                    placeholder="Persons involved — suspects, victims, witnesses...",
                     height=90
                 )
-
                 st.markdown("#### 📋 WHAT happened?")
                 what = st.text_area(
                     "what", label_visibility="collapsed",
                     placeholder="Nature and description of the incident...",
                     height=100
                 )
-
                 st.markdown("#### 📅 WHEN did it happen?")
                 col_date, col_time = st.columns(2)
                 with col_date:
@@ -443,14 +571,12 @@ else:
                     placeholder="Exact location within or near the site...",
                     height=80
                 )
-
                 st.markdown("#### ❓ HOW did it happen?")
                 how = st.text_area(
                     "how", label_visibility="collapsed",
-                    placeholder="Step-by-step sequence of events leading to and during the incident...",
+                    placeholder="Step-by-step sequence of events...",
                     height=100
                 )
-
                 st.markdown("#### 🔧 Action Taken")
                 action_taken = st.text_area(
                     "action", label_visibility="collapsed",
@@ -461,8 +587,7 @@ else:
                 st.divider()
                 submitted = st.form_submit_button(
                     "📤 SUBMIT INCIDENT REPORT",
-                    use_container_width=True,
-                    type="primary"
+                    use_container_width=True, type="primary"
                 )
 
                 if submitted:
@@ -503,11 +628,11 @@ else:
                         else:
                             st.error("⚠️ Submission failed. Try again or contact your supervisor.")
 
-            # ── Guard's own previous reports ─────────────────────────────────
+            # Guard's own previous reports
             st.divider()
             st.markdown("#### My Previous Reports")
             try:
-                ir_df = get_data("Incident_Reports")
+                ir_df = get_data("Incident_Reports", _svc_frozen)
                 if not ir_df.empty:
                     ir_df['_name'] = ir_df['Reported_By'].astype(str).str.strip().str.upper()
                     my_reports = ir_df[
@@ -517,11 +642,8 @@ else:
                         display_cols = ['Submitted_At', 'Incident_DateTime', 'What', 'Status']
                         available    = [c for c in display_cols if c in my_reports.columns]
                         st.dataframe(
-                            my_reports[available].sort_values(
-                                'Submitted_At', ascending=False
-                            ),
-                            hide_index=True,
-                            use_container_width=True
+                            my_reports[available].sort_values('Submitted_At', ascending=False),
+                            hide_index=True, use_container_width=True
                         )
                     else:
                         st.info("No previous incident reports filed.")
@@ -543,7 +665,7 @@ else:
             st.divider()
             st.subheader("History")
             try:
-                all_reqs = get_data("Request")
+                all_reqs       = get_data("Request", _svc_frozen)
                 guard_name_req = str(user.get('Name', '')).strip()
                 if 'Mobile_Number' in all_reqs.columns and user.get('Mobile_Number'):
                     user_mob = clean_to_digits(user['Mobile_Number'])
@@ -560,19 +682,18 @@ else:
                     st.dataframe(styled_display, hide_index=True, use_container_width=True)
                 else:
                     st.info("No requests.")
-            except:
+            except Exception:
                 st.error("History Error.")
 
         # ── TAB 3: PROFILE ───────────────────────────────────────────────────
         with tab3:
             st.subheader("My Info")
-            
-            # Build profile fields
+
             name_val        = str(user.get('Name', 'N/A'))
             initials_val    = str(user.get('Initials', '')).strip().upper() or 'N/A'
             mobile_val      = user.get('Mobile_Number', '')
             designation_val = str(user.get('Designation', '')).strip()
- 
+
             def profile_card(label, value, color="#001f3f"):
                 return (
                     f'<div style="background:#f8f9fa;border-radius:10px;padding:14px 18px;'
@@ -583,27 +704,30 @@ else:
                     f'margin-top:2px;">{value}</div>'
                     f'</div>'
                 )
- 
-            st.markdown(profile_card("Full Name",       name_val,     "#001f3f"), unsafe_allow_html=True)
-            st.markdown(profile_card("Security ID",     clean_id,     "#0074D9"), unsafe_allow_html=True)
-            st.markdown(profile_card("Login Initials",  initials_val, "#001f3f"), unsafe_allow_html=True)
-            st.markdown(profile_card("Post Assignment", assigned_site,"#28a745"), unsafe_allow_html=True)
- 
+
+            st.markdown(profile_card("Full Name",       name_val,      "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Security ID",     clean_id,      "#0074D9"), unsafe_allow_html=True)
+            st.markdown(profile_card("Login Initials",  initials_val,  "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Post Assignment", assigned_site, "#28a745"), unsafe_allow_html=True)
+
             if mobile_val and str(mobile_val) not in ['', 'nan', 'None']:
-                st.markdown(profile_card("Mobile Number", clean_to_digits(mobile_val), "#0074D9"), unsafe_allow_html=True)
- 
+                st.markdown(
+                    profile_card("Mobile Number", clean_to_digits(mobile_val), "#0074D9"),
+                    unsafe_allow_html=True
+                )
             if designation_val and designation_val.lower() not in ['', 'nan', 'none']:
-                st.markdown(profile_card("Designation", designation_val, "#6c757d"), unsafe_allow_html=True)
+                st.markdown(
+                    profile_card("Designation", designation_val, "#6c757d"),
+                    unsafe_allow_html=True
+                )
 
         # ── TAB 4: PAYSLIP ───────────────────────────────────────────────────
         with tab4:
             st.subheader("My Payslip")
             try:
-                ctrl_df      = get_data("PayrollControl")
-                is_published = (
-                    not ctrl_df.empty and
-                    str(ctrl_df.iloc[0].get("Status", "")).upper() == "PUBLISHED"
-                )
+                # Single cached call — no separate PayrollControl + Payroll fetches
+                is_published, my_records = get_payroll_for_guard(str(user['Name']), _svc_frozen)
+
                 if not is_published:
                     st.markdown(
                         """<div style="background:#f8f9fa;border-left:6px solid #001f3f;"""
@@ -616,81 +740,72 @@ else:
                         """</div>""",
                         unsafe_allow_html=True
                     )
+                elif my_records.empty:
+                    st.warning("No payslip found for your account. Contact admin.")
                 else:
-                    payroll_df = get_data("Payroll")
-                    if payroll_df.empty:
-                        st.info("No payroll data available yet.")
+                    if len(my_records) > 1:
+                        periods  = my_records["Date Covered"].tolist()
+                        chosen   = st.selectbox("Select Pay Period", periods)
+                        row_data = my_records[my_records["Date Covered"] == chosen].iloc[0].to_dict()
                     else:
-                        guard_name_upper = str(user["Name"]).strip().upper()
-                        payroll_df["_name_upper"] = payroll_df["Employee Name"].astype(str).str.strip().str.upper()
-                        my_records = payroll_df[payroll_df["_name_upper"] == guard_name_upper].copy()
+                        row_data = my_records.iloc[0].to_dict()
+                        st.caption(f"Pay Period: **{row_data.get('Date Covered', '')}**")
 
-                        if my_records.empty:
-                            st.warning("No payslip found for your account. Contact admin.")
-                        else:
-                            if len(my_records) > 1:
-                                periods  = my_records["Date Covered"].tolist()
-                                chosen   = st.selectbox("Select Pay Period", periods)
-                                row_data = my_records[my_records["Date Covered"] == chosen].iloc[0].to_dict()
-                            else:
-                                row_data = my_records.iloc[0].to_dict()
-                                st.caption(f"Pay Period: **{row_data.get('Date Covered', '')}**")
+                    numeric_cols = [
+                        "Daily Rate", "Basic Salary", "Holiday", "Overtime pay",
+                        "Night Differential", "5 days Incentives", "Uniform Allowance",
+                        "Gross Pay", "SSS", "Pag-Ibig", "PhilHealth", "Loans",
+                        "FA Bonds", "Cash Advance", "Total Deduction", "NET PAY"
+                    ]
+                    for col in numeric_cols:
+                        try:    row_data[col] = float(str(row_data.get(col, 0) or 0).replace(",", ""))
+                        except: row_data[col] = 0.0
 
-                            numeric_cols = [
-                                "Daily Rate", "Basic Salary", "Holiday", "Overtime pay",
-                                "Night Differential", "5 days Incentives", "Uniform Allowance",
-                                "Gross Pay", "SSS", "Pag-Ibig", "PhilHealth", "Loans",
-                                "FA Bonds", "Cash Advance", "Total Deduction", "NET PAY"
-                            ]
-                            for col in numeric_cols:
-                                try:    row_data[col] = float(str(row_data.get(col, 0) or 0).replace(",", ""))
-                                except: row_data[col] = 0.0
+                    net    = row_data["NET PAY"]
+                    period = row_data.get("Date Covered", "")
+                    st.markdown(
+                        f"""<div style="background:#001f3f;color:white;padding:16px;"""
+                        f"""border-radius:12px;text-align:center;margin-bottom:12px;">"""
+                        f"""<div style="font-size:12px;opacity:0.7;">NET PAY</div>"""
+                        f"""<div style="font-size:28px;font-weight:bold;">&#8369; {net:,.2f}</div>"""
+                        f"""<div style="font-size:11px;opacity:0.6;">{period}</div></div>""",
+                        unsafe_allow_html=True
+                    )
 
-                            net    = row_data["NET PAY"]
-                            period = row_data.get("Date Covered", "")
-                            st.markdown(
-                                f"""<div style="background:#001f3f;color:white;padding:16px;"""
-                                f"""border-radius:12px;text-align:center;margin-bottom:12px;">"""
-                                f"""<div style="font-size:12px;opacity:0.7;">NET PAY</div>"""
-                                f"""<div style="font-size:28px;font-weight:bold;">&#8369; {net:,.2f}</div>"""
-                                f"""<div style="font-size:11px;opacity:0.6;">{period}</div></div>""",
-                                unsafe_allow_html=True
-                            )
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("**Earnings**")
+                        st.write(f"Basic Salary: ₱{row_data['Basic Salary']:,.2f}")
+                        st.write(f"Holiday: ₱{row_data['Holiday']:,.2f}")
+                        st.write(f"Overtime: ₱{row_data['Overtime pay']:,.2f}")
+                        st.write(f"Night Diff: ₱{row_data['Night Differential']:,.2f}")
+                        st.write(f"5-Day Incentive: ₱{row_data['5 days Incentives']:,.2f}")
+                        st.write(f"Uniform Allow.: ₱{row_data['Uniform Allowance']:,.2f}")
+                        st.markdown(f"**Gross Pay: ₱{row_data['Gross Pay']:,.2f}**")
+                    with c2:
+                        st.markdown("**Deductions**")
+                        st.write(f"SSS: ₱{row_data['SSS']:,.2f}")
+                        st.write(f"Pag-Ibig: ₱{row_data['Pag-Ibig']:,.2f}")
+                        st.write(f"PhilHealth: ₱{row_data['PhilHealth']:,.2f}")
+                        st.write(f"Loans: ₱{row_data['Loans']:,.2f}")
+                        st.write(f"FA Bonds: ₱{row_data['FA Bonds']:,.2f}")
+                        st.write(f"Cash Advance: ₱{row_data['Cash Advance']:,.2f}")
+                        st.markdown(f"**Total Deduction: ₱{row_data['Total Deduction']:,.2f}**")
 
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                st.markdown("**Earnings**")
-                                st.write(f"Basic Salary: \u20b1{row_data['Basic Salary']:,.2f}")
-                                st.write(f"Holiday: \u20b1{row_data['Holiday']:,.2f}")
-                                st.write(f"Overtime: \u20b1{row_data['Overtime pay']:,.2f}")
-                                st.write(f"Night Diff: \u20b1{row_data['Night Differential']:,.2f}")
-                                st.write(f"5-Day Incentive: \u20b1{row_data['5 days Incentives']:,.2f}")
-                                st.write(f"Uniform Allow.: \u20b1{row_data['Uniform Allowance']:,.2f}")
-                                st.markdown(f"**Gross Pay: \u20b1{row_data['Gross Pay']:,.2f}**")
-                            with c2:
-                                st.markdown("**Deductions**")
-                                st.write(f"SSS: \u20b1{row_data['SSS']:,.2f}")
-                                st.write(f"Pag-Ibig: \u20b1{row_data['Pag-Ibig']:,.2f}")
-                                st.write(f"PhilHealth: \u20b1{row_data['PhilHealth']:,.2f}")
-                                st.write(f"Loans: \u20b1{row_data['Loans']:,.2f}")
-                                st.write(f"FA Bonds: \u20b1{row_data['FA Bonds']:,.2f}")
-                                st.write(f"Cash Advance: \u20b1{row_data['Cash Advance']:,.2f}")
-                                st.markdown(f"**Total Deduction: \u20b1{row_data['Total Deduction']:,.2f}**")
-
-                            st.divider()
-                            pdf_bytes = generate_payslip_pdf(row_data)
-                            filename  = (
-                                f"Payslip_{str(user['Name']).replace(' ', '_')}_"
-                                f"{str(row_data.get('Date Covered', '')).replace('/', '_')}.pdf"
-                            )
-                            st.download_button(
-                                label="Download My Payslip PDF",
-                                data=pdf_bytes,
-                                file_name=filename,
-                                mime="application/pdf",
-                                use_container_width=True,
-                                type="primary"
-                            )
+                    st.divider()
+                    pdf_bytes = generate_payslip_pdf(row_data)
+                    filename  = (
+                        f"Payslip_{str(user['Name']).replace(' ', '_')}_"
+                        f"{str(row_data.get('Date Covered', '')).replace('/', '_')}.pdf"
+                    )
+                    st.download_button(
+                        label="Download My Payslip PDF",
+                        data=pdf_bytes,
+                        file_name=filename,
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary"
+                    )
             except Exception as e:
                 st.error(f"Could not load payslip: {e}")
 
@@ -698,46 +813,9 @@ else:
         with tab5:
             st.subheader("My Balance")
             try:
-                guard_full_name = str(user["Name"]).strip().upper()
-
-                ca_df     = get_data("Cash_Advance")
-                unpaid_ca = pd.DataFrame()
-                if not ca_df.empty:
-                    ca_df["_n"] = ca_df["Security Guard"].astype(str).str.strip().str.upper()
-                    my_ca = ca_df[ca_df["_n"] == guard_full_name].copy()
-                    my_ca["_paid"] = my_ca["Remarks"].astype(str).str.strip().str.upper()
-                    unpaid_ca = my_ca[my_ca["_paid"] != "PAID"].copy()
-                    unpaid_ca["_amount"] = pd.to_numeric(
-                        unpaid_ca["Amount"].astype(str).str.replace(",","").str.strip(),
-                        errors="coerce"
-                    ).fillna(0)
-                    unpaid_ca["_date"] = pd.to_datetime(
-                        unpaid_ca["Date of CA"], errors="coerce"
-                    ).dt.strftime("%m/%d/%Y").fillna("")
-                    unpaid_ca["_remarks"] = unpaid_ca["Remarks"].astype(str).str.strip()
-                    unpaid_ca.loc[
-                        unpaid_ca["_remarks"].str.upper().isin(["NAN","PAID",""]), "_remarks"
-                    ] = "Cash Advance"
-
-                gp_df     = get_data("Guards_Payable")
-                unpaid_gp = pd.DataFrame()
-                if not gp_df.empty:
-                    gp_df["_n"] = gp_df["Security Guard"].apply(normalize_name)
-                    my_gp = gp_df[gp_df["_n"] == normalize_name(user["Name"])].copy()
-                    my_gp["_paid"] = my_gp["Status"].astype(str).str.strip().str.upper()
-                    unpaid_gp = my_gp[my_gp["_paid"] != "PAID"].copy()
-                    unpaid_gp["_amount"] = pd.to_numeric(
-                        unpaid_gp["Amount"].astype(str).str.replace(",","").str.strip(),
-                        errors="coerce"
-                    ).fillna(0)
-                    unpaid_gp["_date"] = pd.to_datetime(
-                        unpaid_gp["Date"], errors="coerce"
-                    ).dt.strftime("%m/%d/%Y").fillna("")
-                    unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
-
-                total_ca    = unpaid_ca["_amount"].sum() if not unpaid_ca.empty else 0
-                total_gp    = unpaid_gp["_amount"].sum() if not unpaid_gp.empty else 0
-                grand_total = total_ca + total_gp
+                # Single cached call — no duplicate CA/GP fetches
+                unpaid_ca, unpaid_gp, total_ca, total_gp, grand_total = \
+                    get_guard_balance(str(user['Name']), _svc_frozen)
 
                 if grand_total == 0:
                     st.markdown(
