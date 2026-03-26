@@ -620,7 +620,7 @@ else:
                         with st.spinner("Submitting to Command Center..."):
                             success = append_to_sheet("Incident_Reports", report_row)
                         if success:
-                            st.cache_data.clear()
+                            st.cache_data.clear()  # clears Incident_Reports cache so list refreshes instantly
                             st.success(
                                 "✅ Incident Report submitted! "
                                 "Command Center has been notified."
