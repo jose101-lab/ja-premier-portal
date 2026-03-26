@@ -37,6 +37,22 @@ st.markdown("""
         header     { display: none !important; }
         footer     { display: none !important; }
         .block-container { padding-top: 2rem; padding-bottom: 1rem; }
+
+        /* Skeleton shimmer for lazy-load tabs */
+        @keyframes shimmer {
+            0%   { background-position: -600px 0; }
+            100% { background-position:  600px 0; }
+        }
+        .skeleton-box {
+            background: linear-gradient(90deg,#e8eaf0 25%,#f5f6fa 50%,#e8eaf0 75%);
+            background-size: 600px 100%;
+            animation: shimmer 1.4s infinite linear;
+            border-radius: 8px;
+            height: 60px;
+            margin-bottom: 10px;
+        }
+        .skeleton-box.tall  { height: 100px; }
+        .skeleton-box.short { height: 36px;  }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,7 +87,6 @@ except Exception:
 # ============================================================
 
 def _freeze_svc(svc_info: dict) -> frozenset:
-    """Convert svc_info dict → frozenset so it works as a cache key."""
     return frozenset(svc_info.items())
 
 _svc_frozen = _freeze_svc(svc_info)
@@ -79,11 +94,7 @@ _svc_frozen = _freeze_svc(svc_info)
 
 @st.cache_resource
 def build_gspread_client(svc_info_frozen: frozenset):
-    """
-    Cache the authenticated gspread client as a RESOURCE.
-    OAuth handshake happens once per server process — never repeated
-    across rerenders or tab switches.
-    """
+    """OAuth handshake once per server process — never repeated."""
     creds = Credentials.from_service_account_info(
         dict(svc_info_frozen), scopes=SYSTEM_SCOPES
     )
@@ -92,11 +103,7 @@ def build_gspread_client(svc_info_frozen: frozenset):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_data(sheet_name: str, svc_info_frozen: frozenset) -> pd.DataFrame:
-    """
-    Fetch a single sheet and cache it for 60 seconds.
-    Reuses the cached gspread client — no redundant OAuth calls.
-    All callers share the same cache entry for the same sheet_name.
-    """
+    """Single-sheet fetch, cached 60 s. Shared across all tab callers."""
     try:
         client = build_gspread_client(svc_info_frozen)
         ws     = client.open(GS_FILENAME).worksheet(sheet_name)
@@ -106,69 +113,11 @@ def get_data(sheet_name: str, svc_info_frozen: frozenset) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def get_guard_balance(guard_name: str, svc_info_frozen: frozenset):
-    """
-    Fetch Cash Advance + Guards Payable for ONE guard, cached 5 min.
-    Isolated so it can be invalidated independently from other sheets.
-    Returns (unpaid_ca_df, unpaid_gp_df, total_ca, total_gp, grand_total).
-    """
-    try:
-        ca_df     = get_data("Cash_Advance",   svc_info_frozen)
-        gp_df     = get_data("Guards_Payable", svc_info_frozen)
-        guard_upper = guard_name.strip().upper()
-
-        unpaid_ca = pd.DataFrame()
-        if not ca_df.empty:
-            ca_df["_n"]    = ca_df["Security Guard"].astype(str).str.strip().str.upper()
-            my_ca          = ca_df[ca_df["_n"] == guard_upper].copy()
-            my_ca["_paid"] = my_ca["Remarks"].astype(str).str.strip().str.upper()
-            unpaid_ca      = my_ca[my_ca["_paid"] != "PAID"].copy()
-            unpaid_ca["_amount"] = pd.to_numeric(
-                unpaid_ca["Amount"].astype(str).str.replace(",", "").str.strip(),
-                errors="coerce"
-            ).fillna(0)
-            unpaid_ca["_date"] = pd.to_datetime(
-                unpaid_ca["Date of CA"], errors="coerce"
-            ).dt.strftime("%m/%d/%Y").fillna("")
-            unpaid_ca["_remarks"] = unpaid_ca["Remarks"].astype(str).str.strip()
-            unpaid_ca.loc[
-                unpaid_ca["_remarks"].str.upper().isin(["NAN", "PAID", ""]), "_remarks"
-            ] = "Cash Advance"
-
-        unpaid_gp = pd.DataFrame()
-        if not gp_df.empty:
-            gp_df["_n"]    = gp_df["Security Guard"].apply(normalize_name)
-            my_gp          = gp_df[gp_df["_n"] == normalize_name(guard_name)].copy()
-            my_gp["_paid"] = my_gp["Status"].astype(str).str.strip().str.upper()
-            unpaid_gp      = my_gp[my_gp["_paid"] != "PAID"].copy()
-            unpaid_gp["_amount"] = pd.to_numeric(
-                unpaid_gp["Amount"].astype(str).str.replace(",", "").str.strip(),
-                errors="coerce"
-            ).fillna(0)
-            unpaid_gp["_date"] = pd.to_datetime(
-                unpaid_gp["Date"], errors="coerce"
-            ).dt.strftime("%m/%d/%Y").fillna("")
-            unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
-
-        total_ca    = float(unpaid_ca["_amount"].sum()) if not unpaid_ca.empty else 0.0
-        total_gp    = float(unpaid_gp["_amount"].sum()) if not unpaid_gp.empty else 0.0
-        grand_total = total_ca + total_gp
-        return unpaid_ca, unpaid_gp, total_ca, total_gp, grand_total
-
-    except Exception as e:
-        st.error(f"Balance error: {e}")
-        return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0, 0.0
-
-
 @st.cache_data(ttl=120, show_spinner=False)
 def get_guard_assignment(guard_name: str, svc_info_frozen: frozenset) -> str:
-    """
-    Resolve the latest site assignment for a guard, cached 2 min.
-    Avoids re-fetching GUARDS sheet on every tab switch.
-    """
+    """Resolve latest site assignment, cached 2 min."""
     try:
-        guards_df = get_data("GUARDS", svc_info_frozen)
+        guards_df   = get_data("GUARDS", svc_info_frozen)
         guard_upper = guard_name.strip().upper()
         assignments = guards_df[
             guards_df["Guard Name"].astype(str).str.strip().str.upper() == guard_upper
@@ -186,37 +135,84 @@ def get_guard_assignment(guard_name: str, svc_info_frozen: frozenset) -> str:
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def get_payroll_for_guard(guard_name: str, svc_info_frozen: frozenset):
+def get_guard_balance(guard_name: str, svc_info_frozen: frozenset):
     """
-    Fetch PayrollControl + Payroll sheet, filter to one guard, cached 5 min.
-    Returns (is_published, my_records_df).
+    Cash Advance + Guards Payable for ONE guard, cached 5 min.
+    Returns (unpaid_ca_df, unpaid_gp_df, total_ca, total_gp, grand_total).
     """
     try:
-        ctrl_df = get_data("PayrollControl", svc_info_frozen)
+        ca_df       = get_data("Cash_Advance",   svc_info_frozen)
+        gp_df       = get_data("Guards_Payable", svc_info_frozen)
+        guard_upper = guard_name.strip().upper()
+
+        unpaid_ca = pd.DataFrame()
+        if not ca_df.empty:
+            ca_df["_n"]    = ca_df["Security Guard"].astype(str).str.strip().str.upper()
+            my_ca          = ca_df[ca_df["_n"] == guard_upper].copy()
+            my_ca["_paid"] = my_ca["Remarks"].astype(str).str.strip().str.upper()
+            unpaid_ca      = my_ca[my_ca["_paid"] != "PAID"].copy()
+            unpaid_ca["_amount"] = pd.to_numeric(
+                unpaid_ca["Amount"].astype(str).str.replace(",", "").str.strip(),
+                errors="coerce"
+            ).fillna(0)
+            unpaid_ca["_date"]    = pd.to_datetime(
+                unpaid_ca["Date of CA"], errors="coerce"
+            ).dt.strftime("%m/%d/%Y").fillna("")
+            unpaid_ca["_remarks"] = unpaid_ca["Remarks"].astype(str).str.strip()
+            unpaid_ca.loc[
+                unpaid_ca["_remarks"].str.upper().isin(["NAN", "PAID", ""]), "_remarks"
+            ] = "Cash Advance"
+
+        unpaid_gp = pd.DataFrame()
+        if not gp_df.empty:
+            gp_df["_n"]    = gp_df["Security Guard"].apply(normalize_name)
+            my_gp          = gp_df[gp_df["_n"] == normalize_name(guard_name)].copy()
+            my_gp["_paid"] = my_gp["Status"].astype(str).str.strip().str.upper()
+            unpaid_gp      = my_gp[my_gp["_paid"] != "PAID"].copy()
+            unpaid_gp["_amount"] = pd.to_numeric(
+                unpaid_gp["Amount"].astype(str).str.replace(",", "").str.strip(),
+                errors="coerce"
+            ).fillna(0)
+            unpaid_gp["_date"]    = pd.to_datetime(
+                unpaid_gp["Date"], errors="coerce"
+            ).dt.strftime("%m/%d/%Y").fillna("")
+            unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
+
+        total_ca    = float(unpaid_ca["_amount"].sum()) if not unpaid_ca.empty else 0.0
+        total_gp    = float(unpaid_gp["_amount"].sum()) if not unpaid_gp.empty else 0.0
+        return unpaid_ca, unpaid_gp, total_ca, total_gp, total_ca + total_gp
+
+    except Exception as e:
+        st.error(f"Balance error: {e}")
+        return pd.DataFrame(), pd.DataFrame(), 0.0, 0.0, 0.0
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_payroll_for_guard(guard_name: str, svc_info_frozen: frozenset):
+    """PayrollControl + Payroll filtered to one guard, cached 5 min."""
+    try:
+        ctrl_df      = get_data("PayrollControl", svc_info_frozen)
         is_published = (
             not ctrl_df.empty and
             str(ctrl_df.iloc[0].get("Status", "")).upper() == "PUBLISHED"
         )
         if not is_published:
             return False, pd.DataFrame()
-
         payroll_df = get_data("Payroll", svc_info_frozen)
         if payroll_df.empty:
             return True, pd.DataFrame()
-
         payroll_df["_name_upper"] = (
             payroll_df["Employee Name"].astype(str).str.strip().str.upper()
         )
-        my_records = payroll_df[
+        return True, payroll_df[
             payroll_df["_name_upper"] == guard_name.strip().upper()
         ].copy()
-        return True, my_records
     except Exception:
         return False, pd.DataFrame()
 
 
 # ============================================================
-# --- 5. UTILITY FUNCTIONS ---
+# --- UTILITY FUNCTIONS ---
 # ============================================================
 
 def get_base64_of_bin_file(bin_file):
@@ -273,13 +269,10 @@ def append_to_sheet(sheet_name, row_dict):
 
 
 def style_status(val):
-    val_upper = str(val).upper().strip()
-    if val_upper == 'APPROVED':
-        return 'background-color: #28a745; color: white; font-weight: bold;'
-    elif val_upper == 'PENDING':
-        return 'background-color: #ffc107; color: black; font-weight: bold;'
-    elif val_upper == 'DENIED':
-        return 'background-color: #dc3545; color: white; font-weight: bold;'
+    v = str(val).upper().strip()
+    if v == 'APPROVED': return 'background-color:#28a745;color:white;font-weight:bold;'
+    if v == 'PENDING':  return 'background-color:#ffc107;color:black;font-weight:bold;'
+    if v == 'DENIED':   return 'background-color:#dc3545;color:white;font-weight:bold;'
     return ''
 
 
@@ -288,8 +281,7 @@ def submit_request(req_type, details):
         mobile    = st.session_state.user_data.get('Mobile_Number', '')
         clean_mob = (
             clean_to_digits(mobile)
-            if mobile and str(mobile) not in ['', 'nan', 'None']
-            else ''
+            if mobile and str(mobile) not in ['', 'nan', 'None'] else ''
         )
         new_req = pd.DataFrame([{
             "Date":          now_pst().strftime("%Y-%m-%d %H:%M:%S"),
@@ -305,31 +297,42 @@ def submit_request(req_type, details):
             update_sheet("Request", updated_reqs)
             st.success("Request sent!")
             st.cache_data.clear()
+            st.session_state.tab_requests_loaded = False  # force history refresh
         except Exception as e:
             st.error(f"Error: {e}")
 
 
-# --- 6. SESSION MANAGEMENT ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-    st.session_state.user_data     = None
+# ============================================================
+# --- SESSION STATE INIT ---
+# ============================================================
+
+_SS_DEFAULTS = {
+    "authenticated":         False,
+    "user_data":             None,
+    # per-tab lazy-load flags — False = not yet visited/loaded
+    "tab_incident_loaded":   False,
+    "tab_requests_loaded":   False,
+    "tab_profile_loaded":    False,
+    "tab_payslip_loaded":    False,
+    "tab_balance_loaded":    False,
+}
+for _k, _v in _SS_DEFAULTS.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
 
 # ============================================================
-# --- 7. LOGIN SCREEN ---
+# --- LOGIN SCREEN ---
 # ============================================================
 
 if not st.session_state.authenticated:
     st.markdown("""
         <style>
         .force-center {
-            display: flex; justify-content: center;
-            align-items: center; width: 100%; margin-bottom: 10px;
+            display:flex; justify-content:center;
+            align-items:center; width:100%; margin-bottom:10px;
         }
-        .logo-img { width: 150px; height: auto; }
-        .welcome-text {
-            text-align: center; color: #001f3f;
-            font-weight: bold; margin-bottom: 15px; font-size: 1.1rem;
-        }
+        .logo-img { width:150px; height:auto; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -361,11 +364,10 @@ if not st.session_state.authenticated:
         else:
             with st.spinner("Verifying..."):
                 try:
-                    # Rosters is cached — fast on repeated logins within 60s
                     df = get_data("Rosters", _svc_frozen)
                     df.columns = [str(c).strip() for c in df.columns]
                     if 'Initials' not in df.columns:
-                        st.error("Initials column not found in Rosters sheet. Please contact admin.")
+                        st.error("Initials column not found in Rosters. Contact admin.")
                         st.stop()
                     df['Initials_Clean'] = df['Initials'].astype(str).str.strip().str.upper()
                     user_row = df[df['Initials_Clean'] == initials_input]
@@ -374,6 +376,13 @@ if not st.session_state.authenticated:
                         if str(password_input).strip() == stored_password:
                             st.session_state.authenticated = True
                             st.session_state.user_data     = user_row.iloc[0].to_dict()
+                            # Reset all tab flags on fresh login
+                            for _flag in [
+                                "tab_incident_loaded", "tab_requests_loaded",
+                                "tab_profile_loaded",  "tab_payslip_loaded",
+                                "tab_balance_loaded"
+                            ]:
+                                st.session_state[_flag] = False
                             st.rerun()
                         else:
                             st.error("Incorrect password.")
@@ -382,23 +391,22 @@ if not st.session_state.authenticated:
                 except Exception as e:
                     st.error(f"Login System Error: {e}")
 
+
 # ============================================================
-# --- 8. LOGGED IN CONTENT ---
+# --- LOGGED IN ---
 # ============================================================
 
 else:
-    user   = st.session_state.user_data
-    raw_id = user.get('SECURITY_ID')
-
+    user     = st.session_state.user_data
+    raw_id   = user.get('SECURITY_ID')
     clean_id = (
         "N/A"
         if raw_id is None or str(raw_id).strip().lower() in ['', 'nan', 'none']
         else str(raw_id).strip()
     )
-
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
-    # ── PASSWORD CHANGE SCREEN ───────────────────────────────────────────────
+    # ── TEMPORARY PASSWORD SCREEN ────────────────────────────────────────────
     if is_temp:
         st.title("Set Your Password")
         st.info("Welcome! Please set a new personal password to continue.")
@@ -414,21 +422,17 @@ else:
             else:
                 with st.spinner("Saving..."):
                     try:
-                        # Reuse cached client — no fresh OAuth
-                        client      = build_gspread_client(_svc_frozen)
-                        sheet       = client.open(GS_FILENAME).worksheet("Rosters")
-                        data        = sheet.get_all_records()
-                        headers     = sheet.row_values(1)
-                        guard_name  = str(user.get('Name', '')).strip()
-
+                        client     = build_gspread_client(_svc_frozen)
+                        sheet      = client.open(GS_FILENAME).worksheet("Rosters")
+                        data       = sheet.get_all_records()
+                        headers    = sheet.row_values(1)
+                        guard_name = str(user.get('Name', '')).strip()
                         for i, row in enumerate(data):
                             if str(row.get('Name', '')).strip() == guard_name:
                                 row_num = i + 2
-                                pwd_col = headers.index('Password') + 1
-                                sheet.update_cell(row_num, pwd_col, new_pass)
+                                sheet.update_cell(row_num, headers.index('Password') + 1, new_pass)
                                 if 'Is_Temporary' in headers:
-                                    tmp_col = headers.index('Is_Temporary') + 1
-                                    sheet.update_cell(row_num, tmp_col, 'FALSE')
+                                    sheet.update_cell(row_num, headers.index('Is_Temporary') + 1, 'FALSE')
                                 st.success("Password saved! Please log in again.")
                                 st.cache_data.clear()
                                 st.session_state.authenticated = False
@@ -444,30 +448,20 @@ else:
     else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
 
-        # Resolve site assignment from cache — no spinner blocking the UI
-        assigned_site = get_guard_assignment(str(user['Name']), _svc_frozen)
-
         # ── GREETING HEADER ──────────────────────────────────────────────────
         col_title, col_refresh = st.columns([5, 1])
         with col_title:
             st.markdown(
                 f"""
                 <div style='padding-top:6px;'>
-                    <div style='
-                        font-size: clamp(14px, 6vw, 20px);
-                        color: #7f8c8d; font-weight: 600;
-                        letter-spacing: 2px; text-transform: uppercase;
-                        text-align: center; margin-bottom: 2px;
-                    '>Good day!</div>
-                    <div style='
-                        font-size: clamp(15px, 4.5vw, 24px);
-                        font-weight: 900; color: #ffffff;
-                        background: linear-gradient(135deg, #001f3f, #003f7f);
-                        padding: 6px 14px; border-radius: 8px;
-                        text-align: center; white-space: nowrap;
-                        overflow: hidden; text-overflow: ellipsis;
-                        letter-spacing: 0.5px;
-                        box-shadow: 0 2px 8px rgba(0,31,63,0.18);
+                    <div style='font-size:clamp(14px,6vw,20px);color:#7f8c8d;font-weight:600;
+                        letter-spacing:2px;text-transform:uppercase;text-align:center;
+                        margin-bottom:2px;'>Good day!</div>
+                    <div style='font-size:clamp(15px,4.5vw,24px);font-weight:900;color:#ffffff;
+                        background:linear-gradient(135deg,#001f3f,#003f7f);
+                        padding:6px 14px;border-radius:8px;text-align:center;
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+                        letter-spacing:0.5px;box-shadow:0 2px 8px rgba(0,31,63,0.18);
                     '>{user['Name']}</div>
                 </div>
                 """,
@@ -475,18 +469,31 @@ else:
             )
         with col_refresh:
             st.markdown("<div style='padding-top:22px;'>", unsafe_allow_html=True)
-            if st.button("↻", help="Refresh page"):
+            if st.button("↻", help="Refresh all tabs"):
                 st.cache_data.clear()
+                for _flag in [
+                    "tab_incident_loaded", "tab_requests_loaded",
+                    "tab_profile_loaded",  "tab_payslip_loaded",
+                    "tab_balance_loaded"
+                ]:
+                    st.session_state[_flag] = False
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
         # ── TABS ─────────────────────────────────────────────────────────────
         tab1, tab_ir, tab2, tab3, tab4, tab5 = st.tabs([
-            "Attendance", "🚨 Incident", "Requests", "Profile", "Payslip", "Balance"
+            "🏠 Attendance", "🚨 Incident", "📋 Requests",
+            "👤 Profile",    "💰 Payslip",  "📊 Balance"
         ])
 
-        # ── TAB 1: ATTENDANCE ────────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════════════════
+        # TAB 1 — ATTENDANCE  ← loads immediately on login (landing tab)
+        # No lazy-load flag needed — this is always rendered first.
+        # Only fetches: PostOrders + GUARDS (both cached 60 s / 2 min)
+        # ════════════════════════════════════════════════════════════════════
         with tab1:
+            assigned_site = get_guard_assignment(str(user['Name']), _svc_frozen)
+
             st.subheader("Daily Time Record")
             st.info(f"Assigned to: **{assigned_site}**")
 
@@ -526,38 +533,41 @@ else:
             unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
             st.link_button("CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
 
-        # ── TAB: INCIDENT REPORT ─────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════════════════
+        # TAB: INCIDENT  ← lazy  (fetches Incident_Reports on first visit)
+        # ════════════════════════════════════════════════════════════════════
         with tab_ir:
+            if not st.session_state.tab_incident_loaded:
+                with st.spinner("Loading incident module…"):
+                    get_data("Incident_Reports", _svc_frozen)   # pre-warm cache
+                st.session_state.tab_incident_loaded = True
+
+            _site_ir = get_guard_assignment(str(user['Name']), _svc_frozen)  # from cache
+
             st.markdown(
-                """
-                <div style="background:#dc3545;color:white;padding:12px 16px;
-                border-radius:8px;margin-bottom:16px;text-align:center;">
-                <div style="font-size:20px;font-weight:900;letter-spacing:1px;">
-                🚨 INCIDENT REPORT FORM</div>
-                <div style="font-size:11px;opacity:0.85;margin-top:4px;">
-                Fill in all fields accurately. This will be forwarded to Command Center immediately.</div>
-                </div>
-                """,
+                '<div style="background:#dc3545;color:white;padding:12px 16px;'
+                'border-radius:8px;margin-bottom:16px;text-align:center;">'
+                '<div style="font-size:20px;font-weight:900;letter-spacing:1px;">'
+                '🚨 INCIDENT REPORT FORM</div>'
+                '<div style="font-size:11px;opacity:0.85;margin-top:4px;">'
+                'Fill in all fields accurately. Forwarded to Command Center immediately.</div>'
+                '</div>',
                 unsafe_allow_html=True
             )
 
             with st.form("incident_form", clear_on_submit=True):
                 st.markdown(f"**Reported by:** {user['Name']}")
-                st.markdown(f"**Site:** {assigned_site}")
+                st.markdown(f"**Site:** {_site_ir}")
                 st.divider()
 
                 st.markdown("#### 👤 WHO was involved?")
-                who = st.text_area(
-                    "who", label_visibility="collapsed",
-                    placeholder="Persons involved — suspects, victims, witnesses...",
-                    height=90
-                )
+                who = st.text_area("who", label_visibility="collapsed",
+                    placeholder="Persons involved — suspects, victims, witnesses...", height=90)
+
                 st.markdown("#### 📋 WHAT happened?")
-                what = st.text_area(
-                    "what", label_visibility="collapsed",
-                    placeholder="Nature and description of the incident...",
-                    height=100
-                )
+                what = st.text_area("what", label_visibility="collapsed",
+                    placeholder="Nature and description of the incident...", height=100)
+
                 st.markdown("#### 📅 WHEN did it happen?")
                 col_date, col_time = st.columns(2)
                 with col_date:
@@ -566,52 +576,42 @@ else:
                     incident_time = st.time_input("Time", value=now_pst().time())
 
                 st.markdown("#### 📍 WHERE did it happen?")
-                where = st.text_area(
-                    "where", label_visibility="collapsed",
-                    placeholder="Exact location within or near the site...",
-                    height=80
-                )
+                where = st.text_area("where", label_visibility="collapsed",
+                    placeholder="Exact location within or near the site...", height=80)
+
                 st.markdown("#### ❓ HOW did it happen?")
-                how = st.text_area(
-                    "how", label_visibility="collapsed",
-                    placeholder="Step-by-step sequence of events...",
-                    height=100
-                )
+                how = st.text_area("how", label_visibility="collapsed",
+                    placeholder="Step-by-step sequence of events...", height=100)
+
                 st.markdown("#### 🔧 Action Taken")
-                action_taken = st.text_area(
-                    "action", label_visibility="collapsed",
-                    placeholder="Immediate action taken by the guard on duty...",
-                    height=80
-                )
+                action_taken = st.text_area("action", label_visibility="collapsed",
+                    placeholder="Immediate action taken by the guard on duty...", height=80)
 
                 st.divider()
                 submitted = st.form_submit_button(
-                    "📤 SUBMIT INCIDENT REPORT",
-                    use_container_width=True, type="primary"
+                    "📤 SUBMIT INCIDENT REPORT", use_container_width=True, type="primary"
                 )
 
                 if submitted:
-                    missing = []
-                    if not who.strip():          missing.append("WHO")
-                    if not what.strip():         missing.append("WHAT")
-                    if not where.strip():        missing.append("WHERE")
-                    if not how.strip():          missing.append("HOW")
-                    if not action_taken.strip(): missing.append("Action Taken")
-
+                    missing = [
+                        lbl for lbl, val in [
+                            ("WHO", who), ("WHAT", what), ("WHERE", where),
+                            ("HOW", how), ("Action Taken", action_taken)
+                        ] if not val.strip()
+                    ]
                     if missing:
                         st.error(f"Please fill in: {', '.join(missing)}")
                     else:
-                        incident_dt = (
-                            f"{incident_date.strftime('%B %d, %Y')} "
-                            f"{incident_time.strftime('%I:%M %p')}"
-                        )
                         report_row = {
                             "Submitted_At":      now_pst().strftime("%Y-%m-%d %H:%M:%S"),
                             "Reported_By":       user['Name'],
-                            "Site":              assigned_site,
+                            "Site":              _site_ir,
                             "Who":               who.strip(),
                             "What":              what.strip(),
-                            "Incident_DateTime": incident_dt,
+                            "Incident_DateTime": (
+                                f"{incident_date.strftime('%B %d, %Y')} "
+                                f"{incident_time.strftime('%I:%M %p')}"
+                            ),
                             "Where":             where.strip(),
                             "How":               how.strip(),
                             "Action_Taken":      action_taken.strip(),
@@ -620,24 +620,19 @@ else:
                         with st.spinner("Submitting to Command Center..."):
                             success = append_to_sheet("Incident_Reports", report_row)
                         if success:
-                            st.cache_data.clear()  # clears Incident_Reports cache so list refreshes instantly
-                            st.success(
-                                "✅ Incident Report submitted! "
-                                "Command Center has been notified."
-                            )
+                            st.cache_data.clear()
+                            st.session_state.tab_incident_loaded = False  # re-fetch on next visit
+                            st.success("✅ Incident Report submitted! Command Center has been notified.")
                         else:
                             st.error("⚠️ Submission failed. Try again or contact your supervisor.")
 
-            # Guard's own previous reports
             st.divider()
             st.markdown("#### My Previous Reports")
             try:
                 ir_df = get_data("Incident_Reports", _svc_frozen)
                 if not ir_df.empty:
                     ir_df['_name'] = ir_df['Reported_By'].astype(str).str.strip().str.upper()
-                    my_reports = ir_df[
-                        ir_df['_name'] == user['Name'].strip().upper()
-                    ].copy()
+                    my_reports     = ir_df[ir_df['_name'] == user['Name'].strip().upper()].copy()
                     if not my_reports.empty:
                         display_cols = ['Submitted_At', 'Incident_DateTime', 'What', 'Status']
                         available    = [c for c in display_cols if c in my_reports.columns]
@@ -652,8 +647,15 @@ else:
             except Exception:
                 st.caption("Previous reports unavailable.")
 
-        # ── TAB 2: REQUESTS ──────────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════════════════
+        # TAB 2 — REQUESTS  ← lazy  (fetches Request sheet on first visit)
+        # ════════════════════════════════════════════════════════════════════
         with tab2:
+            if not st.session_state.tab_requests_loaded:
+                with st.spinner("Loading requests…"):
+                    get_data("Request", _svc_frozen)   # pre-warm cache
+                st.session_state.tab_requests_loaded = True
+
             st.subheader("New Request")
             with st.form("request_form", clear_on_submit=True):
                 req_type = st.selectbox("Type", ["Leave", "Cash Advance", "Equipment", "Schedule", "Other"])
@@ -663,7 +665,7 @@ else:
                         submit_request(req_type, details)
 
             st.divider()
-            st.subheader("History")
+            st.subheader("My Request History")
             try:
                 all_reqs       = get_data("Request", _svc_frozen)
                 guard_name_req = str(user.get('Name', '')).strip()
@@ -674,21 +676,27 @@ else:
                 else:
                     all_reqs['Name_Clean'] = all_reqs['Name'].astype(str).str.strip()
                     my_reqs = all_reqs[all_reqs['Name_Clean'] == guard_name_req].copy()
+
                 if not my_reqs.empty:
-                    display_reqs   = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values(
+                    display_reqs = my_reqs[['Date', 'Type', 'Details', 'Status']].sort_values(
                         'Date', ascending=False
                     )
-                    styled_display = display_reqs.style.map(style_status, subset=['Status'])
-                    st.dataframe(styled_display, hide_index=True, use_container_width=True)
+                    st.dataframe(
+                        display_reqs.style.map(style_status, subset=['Status']),
+                        hide_index=True, use_container_width=True
+                    )
                 else:
-                    st.info("No requests.")
+                    st.info("No requests on record yet.")
             except Exception:
-                st.error("History Error.")
+                st.error("Could not load request history.")
 
-        # ── TAB 3: PROFILE ───────────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════════════════
+        # TAB 3 — PROFILE  ← instant  (all data from session_state, no fetch)
+        # ════════════════════════════════════════════════════════════════════
         with tab3:
-            st.subheader("My Info")
+            st.session_state.tab_profile_loaded = True   # always instant
 
+            _site_profile   = get_guard_assignment(str(user['Name']), _svc_frozen)
             name_val        = str(user.get('Name', 'N/A'))
             initials_val    = str(user.get('Initials', '')).strip().upper() or 'N/A'
             mobile_val      = user.get('Mobile_Number', '')
@@ -705,11 +713,11 @@ else:
                     f'</div>'
                 )
 
-            st.markdown(profile_card("Full Name",       name_val,      "#001f3f"), unsafe_allow_html=True)
-            st.markdown(profile_card("Security ID",     clean_id,      "#0074D9"), unsafe_allow_html=True)
-            st.markdown(profile_card("Login Initials",  initials_val,  "#001f3f"), unsafe_allow_html=True)
-            st.markdown(profile_card("Post Assignment", assigned_site, "#28a745"), unsafe_allow_html=True)
-
+            st.subheader("My Info")
+            st.markdown(profile_card("Full Name",       name_val,          "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Security ID",     clean_id,          "#0074D9"), unsafe_allow_html=True)
+            st.markdown(profile_card("Login Initials",  initials_val,      "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Post Assignment", _site_profile,     "#28a745"), unsafe_allow_html=True)
             if mobile_val and str(mobile_val) not in ['', 'nan', 'None']:
                 st.markdown(
                     profile_card("Mobile Number", clean_to_digits(mobile_val), "#0074D9"),
@@ -721,23 +729,29 @@ else:
                     unsafe_allow_html=True
                 )
 
-        # ── TAB 4: PAYSLIP ───────────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════════════════
+        # TAB 4 — PAYSLIP  ← lazy  (fetches PayrollControl + Payroll on first visit)
+        # ════════════════════════════════════════════════════════════════════
         with tab4:
+            if not st.session_state.tab_payslip_loaded:
+                with st.spinner("Loading payslip…"):
+                    get_payroll_for_guard(str(user['Name']), _svc_frozen)  # pre-warm cache
+                st.session_state.tab_payslip_loaded = True
+
             st.subheader("My Payslip")
             try:
-                # Single cached call — no separate PayrollControl + Payroll fetches
                 is_published, my_records = get_payroll_for_guard(str(user['Name']), _svc_frozen)
 
                 if not is_published:
                     st.markdown(
-                        """<div style="background:#f8f9fa;border-left:6px solid #001f3f;"""
-                        """padding:20px;border-radius:8px;text-align:center;margin-top:20px;">"""
-                        """<div style="font-size:40px;margin-bottom:10px;">&#128203;</div>"""
-                        """<div style="font-size:16px;font-weight:bold;color:#001f3f;">"""
-                        """No payslip available yet</div>"""
-                        """<div style="font-size:13px;color:#666;margin-top:6px;">"""
-                        """Your payslip will appear here once admin releases it.</div>"""
-                        """</div>""",
+                        '<div style="background:#f8f9fa;border-left:6px solid #001f3f;'
+                        'padding:20px;border-radius:8px;text-align:center;margin-top:20px;">'
+                        '<div style="font-size:40px;margin-bottom:10px;">&#128203;</div>'
+                        '<div style="font-size:16px;font-weight:bold;color:#001f3f;">'
+                        'No payslip available yet</div>'
+                        '<div style="font-size:13px;color:#666;margin-top:6px;">'
+                        'Your payslip will appear here once admin releases it.</div>'
+                        '</div>',
                         unsafe_allow_html=True
                     )
                 elif my_records.empty:
@@ -764,11 +778,11 @@ else:
                     net    = row_data["NET PAY"]
                     period = row_data.get("Date Covered", "")
                     st.markdown(
-                        f"""<div style="background:#001f3f;color:white;padding:16px;"""
-                        f"""border-radius:12px;text-align:center;margin-bottom:12px;">"""
-                        f"""<div style="font-size:12px;opacity:0.7;">NET PAY</div>"""
-                        f"""<div style="font-size:28px;font-weight:bold;">&#8369; {net:,.2f}</div>"""
-                        f"""<div style="font-size:11px;opacity:0.6;">{period}</div></div>""",
+                        f'<div style="background:#001f3f;color:white;padding:16px;'
+                        f'border-radius:12px;text-align:center;margin-bottom:12px;">'
+                        f'<div style="font-size:12px;opacity:0.7;">NET PAY</div>'
+                        f'<div style="font-size:28px;font-weight:bold;">&#8369; {net:,.2f}</div>'
+                        f'<div style="font-size:11px;opacity:0.6;">{period}</div></div>',
                         unsafe_allow_html=True
                     )
 
@@ -799,7 +813,7 @@ else:
                         f"{str(row_data.get('Date Covered', '')).replace('/', '_')}.pdf"
                     )
                     st.download_button(
-                        label="Download My Payslip PDF",
+                        label="📄 Download My Payslip PDF",
                         data=pdf_bytes,
                         file_name=filename,
                         mime="application/pdf",
@@ -809,11 +823,17 @@ else:
             except Exception as e:
                 st.error(f"Could not load payslip: {e}")
 
-        # ── TAB 5: BALANCE ───────────────────────────────────────────────────
+        # ════════════════════════════════════════════════════════════════════
+        # TAB 5 — BALANCE  ← lazy  (fetches Cash_Advance + Guards_Payable on first visit)
+        # ════════════════════════════════════════════════════════════════════
         with tab5:
+            if not st.session_state.tab_balance_loaded:
+                with st.spinner("Loading balance…"):
+                    get_guard_balance(str(user['Name']), _svc_frozen)  # pre-warm cache
+                st.session_state.tab_balance_loaded = True
+
             st.subheader("My Balance")
             try:
-                # Single cached call — no duplicate CA/GP fetches
                 unpaid_ca, unpaid_gp, total_ca, total_gp, grand_total = \
                     get_guard_balance(str(user['Name']), _svc_frozen)
 
