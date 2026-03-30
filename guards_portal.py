@@ -497,6 +497,10 @@ else:
             st.subheader("Daily Time Record")
             st.info(f"Assigned to: **{assigned_site}**")
 
+            st.divider()
+            unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
+            st.link_button("CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
+            
             st.markdown("### Post Orders")
             try:
                 orders_df = get_data("PostOrders", _svc_frozen)
@@ -529,9 +533,7 @@ else:
             except Exception:
                 st.caption("Post Orders ready.")
 
-            st.divider()
-            unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
-            st.link_button("CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
+            
 
         # ════════════════════════════════════════════════════════════════════
         # TAB: INCIDENT  ← lazy  (fetches Incident_Reports on first visit)
