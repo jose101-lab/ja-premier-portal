@@ -26,7 +26,7 @@ st.set_page_config(
     page_icon=LOGO_URL
 )
 
-# --- 2. UI CLEANUP ---
+# --- 2. UI CLEANUP + ANDROID TAP FIXES ---
 st.markdown("""
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -38,6 +38,76 @@ st.markdown("""
         header     { display: none !important; }
         footer     { display: none !important; }
         .block-container { padding-top: 2rem; padding-bottom: 1rem; }
+
+        /* ── FIX 1: Stop Streamlit's sticky tab bar from floating over tab content ── */
+        .stTabs [data-baseweb="tab-list"] {
+            position: relative !important;
+            z-index: 1 !important;
+        }
+
+        /* ── FIX 2: Ensure tab panel content always renders above the tab bar ── */
+        .stTabs [data-baseweb="tab-panel"] {
+            position: relative !important;
+            z-index: 2 !important;
+        }
+
+        /* ── FIX 3: Kill ghost overlay divs Streamlit injects in markdown blocks ── */
+        .stMarkdown {
+            position: relative !important;
+            z-index: 3 !important;
+        }
+
+        /* ── FIX 4: Prevent st.info / st.warning alert banners from overlapping ── */
+        [data-testid="stAlert"] {
+            position: relative !important;
+            z-index: 1 !important;
+        }
+
+        /* ── FIX 5: Prevent stVerticalBlock from creating accidental stacking
+              contexts that silently trap and swallow touch events on Android ── */
+        [data-testid="stVerticalBlock"] {
+            isolation: auto !important;
+        }
+
+        /* ── CLOCK IN/OUT BUTTON — fully Android-safe ── */
+        .clock-btn-wrap {
+            position: relative;
+            z-index: 999;
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            margin-bottom: 16px;
+        }
+        .clock-btn-wrap a {
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 64px;
+            background: linear-gradient(135deg, #001f3f, #003f7f);
+            color: #ffffff !important;
+            text-align: center;
+            font-size: 20px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            padding: 18px 16px;
+            border-radius: 12px;
+            text-decoration: none !important;
+            box-sizing: border-box;
+            box-shadow: 0 4px 16px rgba(0,31,63,0.45);
+            /* Kills the 300ms Android tap delay */
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(0, 100, 200, 0.25);
+            /* Ensure nothing intercepts the tap */
+            pointer-events: auto !important;
+            user-select: none;
+            -webkit-user-select: none;
+            cursor: pointer;
+        }
+        .clock-btn-wrap a:active {
+            background: linear-gradient(135deg, #003f7f, #0055aa);
+            transform: scale(0.97);
+        }
 
         @keyframes shimmer {
             0%   { background-position: -600px 0; }
@@ -491,39 +561,33 @@ else:
             assigned_site = get_guard_assignment(str(user['Name']), _svc_frozen)
 
             st.subheader("Daily Time Record")
-            st.info(f"Assigned to: **{assigned_site}**")
 
-            st.divider()
+            # Plain HTML badge — avoids st.info() stacking context bug on Android
+            st.markdown(
+                f'<div style="background:#d1ecf1;border:1px solid #bee5eb;color:#0c5460;'
+                f'border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:14px;'
+                f'position:relative;z-index:1;">'
+                f'📍 Assigned to: <strong>{assigned_site}</strong></div>',
+                unsafe_allow_html=True
+            )
 
+            # ── CLOCK IN / OUT ────────────────────────────────────────────
+            # .clock-btn-wrap CSS is declared globally above.
+            # Key properties that fix Android:
+            #   touch-action: manipulation  → no 300ms delay
+            #   pointer-events: auto        → nothing can intercept the tap
+            #   position:relative + z-index:999 → sits above all sibling layers
             unified_url = (
                 f"{ATTENDANCE_SCRIPT_URL}"
                 f"?name={quote(str(user['Name']), safe='')}"
                 f"&site={quote(str(assigned_site), safe='')}"
             )
             st.markdown(
-                f"""
-                <a href="{unified_url}" target="_blank" style="
-                    display: block;
-                    width: 100%;
-                    min-height: 56px;
-                    background: linear-gradient(135deg, #001f3f, #003f7f);
-                    color: white;
-                    text-align: center;
-                    font-size: 18px;
-                    font-weight: 900;
-                    letter-spacing: 2px;
-                    padding: 16px 12px;
-                    border-radius: 10px;
-                    text-decoration: none;
-                    box-sizing: border-box;
-                    box-shadow: 0 4px 12px rgba(0,31,63,0.35);
-                    -webkit-tap-highlight-color: rgba(0,63,127,0.3);
-                    cursor: pointer;
-                    margin-bottom: 8px;
-                ">
-                    ⏱ CLOCK IN / OUT
-                </a>
-                """,
+                f'<div class="clock-btn-wrap">'
+                f'<a href="{unified_url}" target="_blank" rel="noopener noreferrer">'
+                f'⏱&nbsp;&nbsp;CLOCK IN / OUT'
+                f'</a>'
+                f'</div>',
                 unsafe_allow_html=True
             )
 
