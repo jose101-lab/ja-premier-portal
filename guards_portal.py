@@ -39,7 +39,6 @@ st.markdown("""
         footer     { display: none !important; }
         .block-container { padding-top: 2rem; padding-bottom: 1rem; }
 
-        /* Skeleton shimmer for lazy-load tabs */
         @keyframes shimmer {
             0%   { background-position: -600px 0; }
             100% { background-position:  600px 0; }
@@ -179,8 +178,8 @@ def get_guard_balance(guard_name: str, svc_info_frozen: frozenset):
             ).dt.strftime("%m/%d/%Y").fillna("")
             unpaid_gp["_remarks"] = unpaid_gp["Remarks"].astype(str).str.strip()
 
-        total_ca    = float(unpaid_ca["_amount"].sum()) if not unpaid_ca.empty else 0.0
-        total_gp    = float(unpaid_gp["_amount"].sum()) if not unpaid_gp.empty else 0.0
+        total_ca = float(unpaid_ca["_amount"].sum()) if not unpaid_ca.empty else 0.0
+        total_gp = float(unpaid_gp["_amount"].sum()) if not unpaid_gp.empty else 0.0
         return unpaid_ca, unpaid_gp, total_ca, total_gp, total_ca + total_gp
 
     except Exception as e:
@@ -298,7 +297,7 @@ def submit_request(req_type, details):
             update_sheet("Request", updated_reqs)
             st.success("Request sent!")
             st.cache_data.clear()
-            st.session_state.tab_requests_loaded = False  # force history refresh
+            st.session_state.tab_requests_loaded = False
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -310,7 +309,6 @@ def submit_request(req_type, details):
 _SS_DEFAULTS = {
     "authenticated":         False,
     "user_data":             None,
-    # per-tab lazy-load flags — False = not yet visited/loaded
     "tab_incident_loaded":   False,
     "tab_requests_loaded":   False,
     "tab_profile_loaded":    False,
@@ -377,7 +375,6 @@ if not st.session_state.authenticated:
                         if str(password_input).strip() == stored_password:
                             st.session_state.authenticated = True
                             st.session_state.user_data     = user_row.iloc[0].to_dict()
-                            # Reset all tab flags on fresh login
                             for _flag in [
                                 "tab_incident_loaded", "tab_requests_loaded",
                                 "tab_profile_loaded",  "tab_payslip_loaded",
@@ -407,7 +404,7 @@ else:
     )
     is_temp = str(user.get('Is_Temporary', 'False')).upper() == 'TRUE'
 
-    # ── TEMPORARY PASSWORD SCREEN ────────────────────────────────────────────
+    # ── TEMPORARY PASSWORD SCREEN ─────────────────────────────────────────
     if is_temp:
         st.title("Set Your Password")
         st.info("Welcome! Please set a new personal password to continue.")
@@ -445,11 +442,11 @@ else:
                     except Exception as e:
                         st.error(f"Error saving password: {e}")
 
-    # ── MAIN PORTAL ──────────────────────────────────────────────────────────
+    # ── MAIN PORTAL ───────────────────────────────────────────────────────
     else:
         st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
 
-        # ── GREETING HEADER ──────────────────────────────────────────────────
+        # ── GREETING HEADER ───────────────────────────────────────────────
         col_title, col_refresh = st.columns([5, 1])
         with col_title:
             st.markdown(
@@ -481,17 +478,15 @@ else:
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # ── TABS ─────────────────────────────────────────────────────────────
+        # ── TABS ──────────────────────────────────────────────────────────
         tab1, tab_ir, tab2, tab3, tab4, tab5 = st.tabs([
             "🏠 Attendance", "🚨 Incident", "📋 Requests",
             "👤 Profile",    "💰 Payslip",  "📊 Balance"
         ])
 
-        # ════════════════════════════════════════════════════════════════════
-        # TAB 1 — ATTENDANCE  ← loads immediately on login (landing tab)
-        # No lazy-load flag needed — this is always rendered first.
-        # Only fetches: PostOrders + GUARDS (both cached 60 s / 2 min)
-        # ════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
+        # TAB 1 — ATTENDANCE
+        # ══════════════════════════════════════════════════════════════════
         with tab1:
             assigned_site = get_guard_assignment(str(user['Name']), _svc_frozen)
 
@@ -499,39 +494,39 @@ else:
             st.info(f"Assigned to: **{assigned_site}**")
 
             st.divider()
-            from urllib.parse import quote
-unified_url = (
-    f"{ATTENDANCE_SCRIPT_URL}"
-    f"?name={quote(str(user['Name']), safe='')}"
-    f"&site={quote(str(assigned_site), safe='')}"
-)
-st.markdown(
-    f"""
-    <a href="{unified_url}" target="_blank" style="
-        display: block;
-        width: 100%;
-        min-height: 56px;
-        background: linear-gradient(135deg, #001f3f, #003f7f);
-        color: white;
-        text-align: center;
-        font-size: 18px;
-        font-weight: 900;
-        letter-spacing: 2px;
-        padding: 16px 12px;
-        border-radius: 10px;
-        text-decoration: none;
-        box-sizing: border-box;
-        box-shadow: 0 4px 12px rgba(0,31,63,0.35);
-        -webkit-tap-highlight-color: rgba(0,63,127,0.3);
-        cursor: pointer;
-        margin-bottom: 8px;
-    ">
-        ⏱ CLOCK IN / OUT
-    </a>
-    """,
-    unsafe_allow_html=True
-)
-            
+
+            unified_url = (
+                f"{ATTENDANCE_SCRIPT_URL}"
+                f"?name={quote(str(user['Name']), safe='')}"
+                f"&site={quote(str(assigned_site), safe='')}"
+            )
+            st.markdown(
+                f"""
+                <a href="{unified_url}" target="_blank" style="
+                    display: block;
+                    width: 100%;
+                    min-height: 56px;
+                    background: linear-gradient(135deg, #001f3f, #003f7f);
+                    color: white;
+                    text-align: center;
+                    font-size: 18px;
+                    font-weight: 900;
+                    letter-spacing: 2px;
+                    padding: 16px 12px;
+                    border-radius: 10px;
+                    text-decoration: none;
+                    box-sizing: border-box;
+                    box-shadow: 0 4px 12px rgba(0,31,63,0.35);
+                    -webkit-tap-highlight-color: rgba(0,63,127,0.3);
+                    cursor: pointer;
+                    margin-bottom: 8px;
+                ">
+                    ⏱ CLOCK IN / OUT
+                </a>
+                """,
+                unsafe_allow_html=True
+            )
+
             st.markdown("### Post Orders")
             try:
                 orders_df = get_data("PostOrders", _svc_frozen)
@@ -564,18 +559,16 @@ st.markdown(
             except Exception:
                 st.caption("Post Orders ready.")
 
-            
-
-        # ════════════════════════════════════════════════════════════════════
-        # TAB: INCIDENT  ← lazy  (fetches Incident_Reports on first visit)
-        # ════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
+        # TAB: INCIDENT
+        # ══════════════════════════════════════════════════════════════════
         with tab_ir:
             if not st.session_state.tab_incident_loaded:
                 with st.spinner("Loading incident module…"):
-                    get_data("Incident_Reports", _svc_frozen)   # pre-warm cache
+                    get_data("Incident_Reports", _svc_frozen)
                 st.session_state.tab_incident_loaded = True
 
-            _site_ir = get_guard_assignment(str(user['Name']), _svc_frozen)  # from cache
+            _site_ir = get_guard_assignment(str(user['Name']), _svc_frozen)
 
             st.markdown(
                 '<div style="background:#dc3545;color:white;padding:12px 16px;'
@@ -654,7 +647,7 @@ st.markdown(
                             success = append_to_sheet("Incident_Reports", report_row)
                         if success:
                             st.cache_data.clear()
-                            st.session_state.tab_incident_loaded = False  # re-fetch on next visit
+                            st.session_state.tab_incident_loaded = False
                             st.success("✅ Incident Report submitted! Command Center has been notified.")
                         else:
                             st.error("⚠️ Submission failed. Try again or contact your supervisor.")
@@ -680,13 +673,13 @@ st.markdown(
             except Exception:
                 st.caption("Previous reports unavailable.")
 
-        # ════════════════════════════════════════════════════════════════════
-        # TAB 2 — REQUESTS  ← lazy  (fetches Request sheet on first visit)
-        # ════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
+        # TAB 2 — REQUESTS
+        # ══════════════════════════════════════════════════════════════════
         with tab2:
             if not st.session_state.tab_requests_loaded:
                 with st.spinner("Loading requests…"):
-                    get_data("Request", _svc_frozen)   # pre-warm cache
+                    get_data("Request", _svc_frozen)
                 st.session_state.tab_requests_loaded = True
 
             st.subheader("New Request")
@@ -723,11 +716,11 @@ st.markdown(
             except Exception:
                 st.error("Could not load request history.")
 
-        # ════════════════════════════════════════════════════════════════════
-        # TAB 3 — PROFILE  ← instant  (all data from session_state, no fetch)
-        # ════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
+        # TAB 3 — PROFILE
+        # ══════════════════════════════════════════════════════════════════
         with tab3:
-            st.session_state.tab_profile_loaded = True   # always instant
+            st.session_state.tab_profile_loaded = True
 
             _site_profile   = get_guard_assignment(str(user['Name']), _svc_frozen)
             name_val        = str(user.get('Name', 'N/A'))
@@ -747,10 +740,10 @@ st.markdown(
                 )
 
             st.subheader("My Info")
-            st.markdown(profile_card("Full Name",       name_val,          "#001f3f"), unsafe_allow_html=True)
-            st.markdown(profile_card("Security ID",     clean_id,          "#0074D9"), unsafe_allow_html=True)
-            st.markdown(profile_card("Login Initials",  initials_val,      "#001f3f"), unsafe_allow_html=True)
-            st.markdown(profile_card("Post Assignment", _site_profile,     "#28a745"), unsafe_allow_html=True)
+            st.markdown(profile_card("Full Name",       name_val,      "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Security ID",     clean_id,      "#0074D9"), unsafe_allow_html=True)
+            st.markdown(profile_card("Login Initials",  initials_val,  "#001f3f"), unsafe_allow_html=True)
+            st.markdown(profile_card("Post Assignment", _site_profile, "#28a745"), unsafe_allow_html=True)
             if mobile_val and str(mobile_val) not in ['', 'nan', 'None']:
                 st.markdown(
                     profile_card("Mobile Number", clean_to_digits(mobile_val), "#0074D9"),
@@ -762,13 +755,13 @@ st.markdown(
                     unsafe_allow_html=True
                 )
 
-        # ════════════════════════════════════════════════════════════════════
-        # TAB 4 — PAYSLIP  ← lazy  (fetches PayrollControl + Payroll on first visit)
-        # ════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
+        # TAB 4 — PAYSLIP
+        # ══════════════════════════════════════════════════════════════════
         with tab4:
             if not st.session_state.tab_payslip_loaded:
                 with st.spinner("Loading payslip…"):
-                    get_payroll_for_guard(str(user['Name']), _svc_frozen)  # pre-warm cache
+                    get_payroll_for_guard(str(user['Name']), _svc_frozen)
                 st.session_state.tab_payslip_loaded = True
 
             st.subheader("My Payslip")
@@ -856,13 +849,13 @@ st.markdown(
             except Exception as e:
                 st.error(f"Could not load payslip: {e}")
 
-        # ════════════════════════════════════════════════════════════════════
-        # TAB 5 — BALANCE  ← lazy  (fetches Cash_Advance + Guards_Payable on first visit)
-        # ════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════
+        # TAB 5 — BALANCE
+        # ══════════════════════════════════════════════════════════════════
         with tab5:
             if not st.session_state.tab_balance_loaded:
                 with st.spinner("Loading balance…"):
-                    get_guard_balance(str(user['Name']), _svc_frozen)  # pre-warm cache
+                    get_guard_balance(str(user['Name']), _svc_frozen)
                 st.session_state.tab_balance_loaded = True
 
             st.subheader("My Balance")
