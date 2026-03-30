@@ -10,6 +10,7 @@ import os
 import base64
 import json
 import re
+from urllib.parse import quote
 
 # Philippine Standard Time
 PST = ZoneInfo("Asia/Manila")
@@ -498,8 +499,38 @@ else:
             st.info(f"Assigned to: **{assigned_site}**")
 
             st.divider()
-            unified_url = f"{ATTENDANCE_SCRIPT_URL}?name={user['Name']}&site={assigned_site}"
-            st.link_button("CLOCK IN / OUT", unified_url, use_container_width=True, type="primary")
+            from urllib.parse import quote
+unified_url = (
+    f"{ATTENDANCE_SCRIPT_URL}"
+    f"?name={quote(str(user['Name']), safe='')}"
+    f"&site={quote(str(assigned_site), safe='')}"
+)
+st.markdown(
+    f"""
+    <a href="{unified_url}" target="_blank" style="
+        display: block;
+        width: 100%;
+        min-height: 56px;
+        background: linear-gradient(135deg, #001f3f, #003f7f);
+        color: white;
+        text-align: center;
+        font-size: 18px;
+        font-weight: 900;
+        letter-spacing: 2px;
+        padding: 16px 12px;
+        border-radius: 10px;
+        text-decoration: none;
+        box-sizing: border-box;
+        box-shadow: 0 4px 12px rgba(0,31,63,0.35);
+        -webkit-tap-highlight-color: rgba(0,63,127,0.3);
+        cursor: pointer;
+        margin-bottom: 8px;
+    ">
+        ⏱ CLOCK IN / OUT
+    </a>
+    """,
+    unsafe_allow_html=True
+)
             
             st.markdown("### Post Orders")
             try:
